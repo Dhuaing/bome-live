@@ -1,0 +1,30 @@
+{
+  "version": 1,
+
+  "uniqueId": {
+    "pattern": "^[\\w.-]+$",
+    "roomUrlPrefix": "https://live.douyin.com/",
+    "stripRoomUrlPrefix": "^https?:\\/\\/live\\.douyin\\.com\\/",
+    "stripQueryHash": "[?#].*$"
+  },
+
+  "limits": {
+    "name": 64,
+    "url": 512
+  },
+
+  "url": {
+    "pattern": "^https?:\\/\\/"
+  },
+
+  "record": {
+    "defaults": {
+      "platform": "douyin",
+      "category": "",
+      "description": "",
+      "status": "offline"
+    }
+  },
+
+  "actions": ["follow", "unfollow"]
+}

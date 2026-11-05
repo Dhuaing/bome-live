@@ -1,0 +1,35 @@
+// ============================================
+// 主题配色变量（直播状态查询小程序）
+// ============================================
+
+// 品牌主题色：直播红
+$color-primary: #FE2C55;
+$color-primary-light: #FF5C7C;
+$color-primary-dark: #E02247;
+
+// 功能色
+$color-success: #00C853;
+$color-warning: #FF9500;
+$color-error: #FF3B30;
+$color-info: #007AFF;
+
+// 背景色
+$color-bg-page: #F6F6F8;
+$color-bg-card: #FFFFFF;
+$color-bg-hover: #F2F3F5;
+$color-bg-dark: #1A1A1A;
+
+// 品牌晕染：页面顶部一抹极浅的品牌红，向下渐隐到中性灰
+// （用于各页 .page 的 background-image 顶部段；让「白卡+浅灰底」多一层品牌呼吸感）
+$hero-tint: #FBEFF2;
+
+// 文本色
+$color-text-primary: #1C1C1E;
+$color-text-secondary: #8E8E93;
+$color-text-tertiary: #AEAEB2;
+$color-text-disabled: #C9CDD4;
+$color-text-white: #FFFFFF;
+
+// 边框色
+$color-border: #E5E5EA;
+$color-divider: #F2F3F5;

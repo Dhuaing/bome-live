@@ -1,0 +1,48 @@
+@use '@/styles/variables.scss' as *;
+
+.badge {
+  display: inline-flex;
+  flex-shrink: 0; // 名字用 flex:1 占位后，徽章不能被压缩
+  align-items: center;
+  padding: 4rpx 16rpx;
+  border-radius: $radius-round;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+  white-space: nowrap;
+}
+
+.living {
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  color: $color-text-white;
+}
+
+.offline {
+  background: $color-bg-hover;
+  color: $color-text-tertiary;
+}
+
+.sm {
+  padding: 2rpx 12rpx;
+  font-size: $font-size-xs;
+}
+
+.dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #fff;
+  margin-right: 8rpx;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.7);
+  }
+}

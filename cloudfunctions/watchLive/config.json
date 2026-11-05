@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "openapi": [
+      "subscribeMessage.send"
+    ]
+  },
+  "timeout": 60,
+  "triggers": [
+    {
+      "name": "watch-live-timer",
+      "type": "timer",
+      "config": "0 */1 * * * * *"
+    }
+  ]
+}

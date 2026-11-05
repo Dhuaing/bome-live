@@ -1,0 +1,155 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  // 与首页同款顶部品牌晕染，全 App 观感统一
+  background-color: $color-bg-page;
+  background-image: linear-gradient(180deg, $hero-tint 0%, $color-bg-page 520rpx);
+  background-repeat: no-repeat;
+  padding-bottom: $spacing-xl;
+}
+
+.notifyBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: $color-bg-card;
+  margin: $spacing-lg;
+  padding: $spacing-lg;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.notifyInfo {
+  display: flex;
+  align-items: center;
+}
+
+.notifyIcon {
+  font-size: 40rpx;
+  margin-right: $spacing-sm;
+}
+
+.notifyText {
+  display: block; // Text 默认 inline，否则与 notifySub 挤在一行
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  font-weight: $font-weight-medium;
+}
+
+.notifySub {
+  display: block;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+  margin-top: 4rpx;
+}
+
+.notifyAction {
+  flex-shrink: 0;
+  height: $button-height-sm;
+  padding: 0 $spacing-lg;
+  border-radius: $radius-button;
+  background: $color-primary;
+  color: $color-text-white;
+  font-size: $font-size-sm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// 按压态：H5 用 :active，小程序用 hover-class="pressed"
+.notifyAction:active,
+.notifyAction.pressed {
+  opacity: 0.85;
+}
+
+.notifyActionDisabled {
+  opacity: 0.6;
+}
+
+// 额度账本徽章：一屏一行的低亮度信息条，避免喧宾夺主
+.quotaChip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: $color-bg-card;
+  margin: -$spacing-md $spacing-lg $spacing-lg; // 上边距贴近 notifyBar，视觉成一组
+  padding: $spacing-md $spacing-lg;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.quotaNum {
+  font-size: $font-size-sm;
+  color: $color-primary;
+  font-weight: $font-weight-medium;
+}
+
+.quotaHint {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.addBar {
+  display: flex;
+  align-items: center;
+  background: $color-bg-card;
+  margin: 0 $spacing-lg $spacing-md;
+  padding: $spacing-sm;
+  padding-left: $spacing-lg;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.addInput {
+  flex: 1;
+  height: $button-height-md;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+}
+
+.addBtn {
+  flex-shrink: 0;
+  height: $button-height-md;
+  padding: 0 $spacing-lg;
+  margin-left: $spacing-sm;
+  border-radius: $radius-button;
+  background: $color-primary;
+  color: $color-text-white;
+  font-size: $font-size-md;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// 按压态：H5 用 :active，小程序用 hover-class="pressed"
+.addBtn:active,
+.addBtn.pressed {
+  opacity: 0.85;
+}
+
+.addBtnDisabled {
+  opacity: 0.6;
+}
+
+.sectionTitle {
+  padding: $spacing-md $spacing-lg;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+  font-weight: $font-weight-medium;
+}
+
+.list {
+  padding: 0 $spacing-lg;
+}
+
+.liveTag {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(254, 44, 85, 0.1);
+  color: $color-primary;
+  font-size: $font-size-xs;
+  padding: 4rpx 14rpx;
+  border-radius: $radius-round;
+  margin-left: $spacing-sm;
+}

@@ -1,0 +1,258 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  // 顶部一抹品牌红晕染渐隐到中性灰（比平铺浅灰多一层品牌呼吸感；
+  // 渐变固定高度 + no-repeat，页面拉长时下方自然延续 background-color）
+  background-color: $color-bg-page;
+  background-image: linear-gradient(180deg, $hero-tint 0%, $color-bg-page 520rpx);
+  background-repeat: no-repeat;
+  padding-bottom: $spacing-xl;
+}
+
+.heroSection {
+  padding: $spacing-lg $spacing-lg 0;
+}
+
+// 大屏轮播：weapp Swiper 必须给确定高度；卡片高度自动撑满每屏
+// （在播屏内容较多，按偏高一侧取值；离线屏底部留白由 dots 占位补齐视觉）
+.heroSwiper {
+  height: 620rpx;
+  border-radius: $radius-xl;
+}
+
+.heroCard {
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: $radius-xl;
+  overflow: hidden;
+  padding: $spacing-xl;
+  color: $color-text-white;
+  background: $color-bg-dark;
+}
+
+.heroLiving {
+  // 在播：品牌红从左上切入，三段式亮-暗-更深，滚动的光感比平铺黑红更立体
+  background: linear-gradient(135deg, #43101d 0%, #2b0a15 45%, #17171a 100%);
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(254, 44, 85, 0.3) 0%, transparent 55%);
+    pointer-events: none;
+  }
+}
+
+.heroOffline {
+  // 离线：近黑的冷灰，避免与页面浅灰底打架；底部留微弱品牌辉光呼应页面顶部
+  background: linear-gradient(135deg, #242428 0%, #131316 100%);
+}
+
+.heroHeader {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  margin-bottom: $spacing-lg;
+}
+
+.heroAvatar {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  margin-right: $spacing-md;
+  border: 4rpx solid rgba(255, 255, 255, 0.3);
+}
+
+.heroInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.heroName {
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-bold;
+  margin-bottom: 8rpx;
+}
+
+.heroPlatform {
+  display: inline-block;
+  font-size: $font-size-xs;
+  padding: 2rpx 14rpx;
+  border-radius: $radius-round;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.heroStatus {
+  position: relative;
+  z-index: 1;
+  margin-bottom: $spacing-lg;
+}
+
+.statusLiving {
+  display: flex;
+  align-items: center;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+}
+
+.liveDot {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  background: $color-primary;
+  margin-right: $spacing-sm;
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(254, 44, 85, 0.6);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 12rpx rgba(254, 44, 85, 0);
+  }
+}
+
+.statusOffline {
+  font-size: $font-size-lg;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.heroRoom {
+  position: relative;
+  z-index: 1;
+  margin-bottom: $spacing-lg;
+}
+
+.roomTitle {
+  display: block; // Text 默认 inline，text-ellipsis 需要 block 才生效
+  font-size: $font-size-md;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: $spacing-sm;
+  @include text-ellipsis;
+}
+
+.roomMeta {
+  display: flex;
+  align-items: center;
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.roomMetaItem {
+  margin-right: $spacing-lg;
+}
+
+.heroActions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: $spacing-md;
+}
+
+.primaryBtn {
+  @include button-reset;
+  flex: 1;
+  height: $button-height-md;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  color: $color-text-white;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-button;
+  transition: opacity $transition-fast, transform $transition-fast;
+}
+
+.secondaryBtn {
+  @include button-reset;
+  height: $button-height-md;
+  padding: 0 $spacing-lg;
+  background: rgba(255, 255, 255, 0.15);
+  color: $color-text-white;
+  font-size: $font-size-md;
+  border-radius: $radius-button;
+  transition: opacity $transition-fast;
+}
+
+// 按压态：H5 走 :active，小程序走 hover-class="pressed"。
+// WXSS 不支持 :active，所以两套都要写，否则小程序端没有按压反馈。
+.primaryBtn:active,
+.primaryBtn.pressed {
+  opacity: 0.9;
+  transform: scale(0.98);
+}
+
+.secondaryBtn:active,
+.secondaryBtn.pressed {
+  opacity: 0.8;
+}
+
+.offlineTip {
+  position: relative;
+  z-index: 1;
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.6;
+}
+
+.section {
+  margin-top: $spacing-xl;
+  padding: 0 $spacing-lg;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $spacing-md;
+}
+
+.sectionTitle {
+  font-size: $font-size-xl;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+}
+
+.sectionMore {
+  font-size: $font-size-sm;
+  color: $color-text-tertiary;
+}
+
+.quickEntry {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: $spacing-lg;
+}
+
+.quickItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 25%;
+}
+
+.quickIcon {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: $radius-lg;
+  background: $color-bg-card;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44rpx;
+  margin-bottom: $spacing-xs;
+  box-shadow: $shadow-card;
+}
+
+.quickText {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}

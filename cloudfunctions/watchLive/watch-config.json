@@ -1,0 +1,21 @@
+{
+  "templateId": "N923NAse66knou-8SdrzLwYjQqtE5vVCoL3jqYn6aQo",
+  "alertTemplateId": "",
+  "page": "pages/streamer-detail/index?id={uniqueId}",
+  "miniprogramState": "formal",
+  "keys": {
+    "name": "thing1",
+    "roomTitle": "thing2",
+    "liveStartTime": "time3",
+    "note": "thing4"
+  },
+  "alertKeys": {
+    "detail": "thing1",
+    "failedAt": "time2"
+  },
+  "pacing": {
+    "idleMinutes": 2,
+    "failMinutes": 2,
+    "activeMinutes": 1
+  }
+}

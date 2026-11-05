@@ -1,0 +1,76 @@
+@use '@/styles/variables.scss' as *;
+
+// 渲染容灾兜底页：与 App 底色同款顶部品牌晕染，视觉连续
+.page {
+  min-height: 100vh;
+  background-color: $color-bg-page;
+  background-image: linear-gradient(180deg, $hero-tint 0%, $color-bg-page 520rpx);
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl;
+  box-sizing: border-box;
+}
+
+.card {
+  width: 100%;
+  max-width: $max-content-width;
+  background: $color-bg-card;
+  border-radius: $radius-xl;
+  box-shadow: $shadow-card;
+  padding: $spacing-xl $spacing-lg;
+  text-align: center;
+}
+
+.icon {
+  display: block;
+  font-size: 72rpx;
+  margin-bottom: $spacing-md;
+}
+
+.title {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.desc {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  margin-bottom: $spacing-lg;
+}
+
+.actions {
+  display: flex;
+  gap: $spacing-md;
+}
+
+.primaryBtn,
+.secondaryBtn {
+  flex: 1;
+  height: $button-height-md;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-button;
+  font-size: $font-size-md;
+}
+
+.primaryBtn {
+  background: $color-primary;
+  color: $color-text-white;
+}
+
+.secondaryBtn {
+  background: $color-bg-hover;
+  color: $color-text-primary;
+}
+
+.primaryBtn:active,
+.secondaryBtn:active {
+  opacity: 0.85;
+}

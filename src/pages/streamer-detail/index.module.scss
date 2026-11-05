@@ -1,0 +1,208 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  // 与首页/订阅页同款顶部品牌晕染，全 App 观感统一
+  background-color: $color-bg-page;
+  background-image: linear-gradient(180deg, $hero-tint 0%, $color-bg-page 520rpx);
+  background-repeat: no-repeat;
+  padding-bottom: $spacing-xl;
+}
+
+.header {
+  background: $color-bg-card;
+  padding: $spacing-xl $spacing-lg;
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 50%;
+  margin-right: $spacing-lg;
+  border: 4rpx solid $color-border;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  display: block; // Taro 的 Text 默认 inline，块级间距需要 block
+  font-size: $font-size-xxl;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-xs;
+}
+
+.platformRow {
+  display: flex;
+  align-items: center;
+  margin-bottom: $spacing-xs;
+}
+
+.platformTag {
+  font-size: $font-size-xs;
+  padding: 2rpx 14rpx;
+  border-radius: $radius-round;
+  margin-right: $spacing-sm;
+}
+
+.category {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.followBtn {
+  @include button-reset;
+  height: $button-height-md;
+  padding: 0 $spacing-xl;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  color: $color-text-white;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-button;
+  transition: opacity $transition-fast, transform $transition-fast;
+}
+
+.followed {
+  background: $color-bg-hover;
+  color: $color-text-secondary;
+}
+
+.liveCard {
+  margin: $spacing-lg;
+  border-radius: $radius-xl;
+  overflow: hidden;
+  background: $color-bg-dark;
+  color: $color-text-white;
+}
+
+.liveCardLiving {
+  background: linear-gradient(135deg, #2d0a12 0%, #1a1a1a 100%);
+}
+
+.liveCardContent {
+  padding: $spacing-xl;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  margin-bottom: $spacing-md;
+}
+
+.liveDot {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  background: $color-primary;
+  margin-right: $spacing-sm;
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.statusText {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+}
+
+.offlineStatus {
+  font-size: $font-size-lg;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.roomTitle {
+  display: block; // Text 默认 inline，margin-bottom 需要 block 才生效
+  font-size: $font-size-md;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: $spacing-md;
+  line-height: 1.5;
+}
+
+.roomMeta {
+  display: flex;
+  margin-bottom: $spacing-lg;
+}
+
+.metaItem {
+  font-size: $font-size-sm;
+  color: rgba(255, 255, 255, 0.6);
+  margin-right: $spacing-lg;
+}
+
+.enterBtn {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-md;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  color: $color-text-white;
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-button;
+  transition: opacity $transition-fast, transform $transition-fast;
+}
+
+.offlineBtn {
+  @include button-reset;
+  width: 100%;
+  height: $button-height-md;
+  background: rgba(255, 255, 255, 0.15);
+  color: $color-text-white;
+  font-size: $font-size-md;
+  border-radius: $radius-button;
+  transition: opacity $transition-fast;
+}
+
+// 按压态：H5 用 :active，小程序用 hover-class="pressed"（WXSS 不支持 :active）
+.followBtn:active,
+.followBtn.pressed {
+  opacity: 0.9;
+  transform: scale(0.98);
+}
+
+.enterBtn:active,
+.enterBtn.pressed {
+  opacity: 0.9;
+  transform: scale(0.98);
+}
+
+.offlineBtn:active,
+.offlineBtn.pressed {
+  opacity: 0.8;
+}
+
+.description {
+  margin: 0 $spacing-lg $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  box-shadow: $shadow-card;
+}
+
+.descTitle {
+  display: block; // Text 默认 inline，否则标题与内容挤在同一行
+  font-size: $font-size-md;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-bottom: $spacing-sm;
+}
+
+.descContent {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: 1.6;
+  white-space: pre-line; // 内容里用 \n 换行
+}

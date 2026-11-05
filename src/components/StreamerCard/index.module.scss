@@ -1,0 +1,116 @@
+@use '@/styles/variables.scss' as *;
+
+.card {
+  display: flex;
+  align-items: flex-start;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  margin-bottom: $spacing-md;
+  box-shadow: $shadow-card;
+  position: relative;
+}
+
+.info {
+  flex: 1;
+  margin-left: $spacing-md;
+  min-width: 0;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  margin-bottom: $spacing-xs;
+}
+
+.name {
+  flex: 1; // 占满 topRow 剩余空间，避免硬编码 max-width 把长名字截断
+  min-width: 0;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  margin-right: $spacing-sm;
+  @include text-ellipsis;
+}
+
+.liveInfo {
+  margin-bottom: $spacing-xs;
+}
+
+.roomTitle {
+  display: block;
+  font-size: $font-size-md;
+  color: $color-text-primary;
+  margin-bottom: 6rpx;
+  @include text-ellipsis;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+}
+
+.metaItem {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  margin-right: $spacing-md;
+}
+
+.offlineInfo {
+  margin-bottom: $spacing-xs;
+}
+
+.desc {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  margin-bottom: 6rpx;
+  @include text-ellipsis;
+}
+
+.lastLive {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.bottomRow {
+  display: flex;
+  align-items: center;
+  margin-top: $spacing-xs;
+}
+
+.platformTag {
+  font-size: $font-size-xs;
+  padding: 2rpx 12rpx;
+  border-radius: $radius-round;
+  margin-right: $spacing-sm;
+  white-space: nowrap;
+}
+
+.category {
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.followBtn {
+  flex-shrink: 0;
+  padding: 10rpx 24rpx;
+  background: linear-gradient(135deg, $color-primary 0%, $color-primary-light 100%);
+  color: $color-text-white;
+  font-size: $font-size-sm;
+  border-radius: $radius-round;
+  white-space: nowrap;
+  transition: all $transition-base;
+}
+
+// 按压态：H5 用 :active，小程序用 hover-class="pressed"（WXSS 不支持 :active）
+.followBtn:active,
+.followBtn.pressed {
+  opacity: 0.85;
+  transform: scale(0.96);
+}
+
+.followed {
+  background: $color-bg-hover;
+  color: $color-text-secondary;
+}

@@ -1,0 +1,56 @@
+@use '@/styles/variables.scss' as *;
+
+.avatarWrap {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.avatar {
+  border-radius: 50%;
+  background: $color-bg-hover;
+}
+
+.sm {
+  width: 64rpx;
+  height: 64rpx;
+  .avatar {
+    width: 64rpx;
+    height: 64rpx;
+  }
+}
+
+.md {
+  width: 96rpx;
+  height: 96rpx;
+  .avatar {
+    width: 96rpx;
+    height: 96rpx;
+  }
+}
+
+.lg {
+  width: 160rpx;
+  height: 160rpx;
+  .avatar {
+    width: 160rpx;
+    height: 160rpx;
+  }
+}
+
+.liveRing {
+  position: absolute;
+  bottom: -2rpx;
+  right: -2rpx;
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+  background: $color-success;
+  border: 4rpx solid #fff;
+}
+
+.lg .liveRing {
+  width: 32rpx;
+  height: 32rpx;
+  border-width: 6rpx;
+}

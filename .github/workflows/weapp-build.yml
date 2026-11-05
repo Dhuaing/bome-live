@@ -1,0 +1,33 @@
+name: weapp-build-smoke
+
+# 前端小程序端构建冒烟：防止「产物缺注入」（坑 #5：环境变量未传，模板 ID/环境 ID 落默认值）
+# 提示：模板 ID 不是机密（订阅消息模板 ID 本就公开），直接明文；环境 ID 同理。
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'scripts/sync-cloud-shared.js'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'config/**'
+
+jobs:
+  build-weapp:
+    runs-on: ubuntu-latest
+    env:
+      TCB_ENV_ID: bome-livedongyailongwang-d91c6e8
+      SUBS_TEMPLATE_ID: N923NAse66knou-8SdrzLwYjQqtE5vVCoL3jqYn6aQo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装依赖（webpack 版本冲突需 legacy-peer-deps）
+        run: npm ci --legacy-peer-deps
+      - name: 构建 weapp（含共享代码同步）
+        run: npm run build:weapp
+      - name: 产物注入体检（doctor）
+        run: node scripts/doctor.js

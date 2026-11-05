@@ -1,0 +1,26 @@
+{
+  "miniprogramRoot": "dist-weapp/",
+  "cloudfunctionRoot": "cloudfunctions/",
+  "projectname": "bome-live",
+  "description": "播了么 - 抖音主播开播状态查询与提醒",
+  "appid": "wx47127cae29fda7e6",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "compileHotReLoad": false,
+    "postcss": false,
+    "preloadBackgroundData": false,
+    "minified": false,
+    "newFeature": true,
+    "autoAudits": false,
+    "coverView": true,
+    "showShadowRootInWxmlPanel": false,
+    "scopeDataCheck": false,
+    "useCompilerModule": false
+  },
+  "compileType": "miniprogram",
+  "simulatorType": "wechat",
+  "simulatorPluginLibVersion": {},
+  "condition": {}
+}

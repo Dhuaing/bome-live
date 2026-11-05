@@ -1,0 +1,10 @@
+{
+  "timeout": 60,
+  "triggers": [
+    {
+      "name": "guardian-daily-check",
+      "type": "timer",
+      "config": "0 0 8,20 * * * *"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+@use '@/styles/variables.scss' as *;
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl * 2 $spacing-lg;
+}
+
+.icon {
+  font-size: 96rpx;
+  margin-bottom: $spacing-md;
+}
+
+.text {
+  font-size: $font-size-md;
+  color: $color-text-tertiary;
+}

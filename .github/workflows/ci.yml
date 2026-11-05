@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装依赖（webpack 版本冲突，需 legacy-peer-deps）
+        run: npm ci --legacy-peer-deps
+
+      # ── 质量门 1：类型 ─────────────────────────────────
+      - name: 类型检查（应为 0 错误）
+        run: npm run typecheck
+
+      # ── 质量门 2：Lint ────────────────────────────────
+      - name: ESLint
+        run: npm run lint
+
+      # ── 质量门 3：单测 ────────────────────────────────
+      - name: 单元测试（规则一致性 + 接口契约）
+        run: npm test
+
+      # ── 质量门 4：规则生成物同步 ──────────────────────
+      - name: 生成物与规则源同步检查
+        run: npm run check:rules
+
+      # ── 质量门 5：H5 可构建 ───────────────────────────
+      # serve:h5 托管的就是这个产物，安全探针也依赖它存在
+      - name: 构建 H5
+        run: npm run build:h5
+
+      # ── 质量门 6：STRIDE 安全回归 ──────────────────────
+      # 探针只需要 127.0.0.1:3000，起服务 → 跑探针 → 停服务
+      - name: 安全回归（9 项 STRIDE 检查）
+        run: |
+          npm run serve:h5 &
+          sleep 2
+          npm run test:security
+          pkill -f serve-h5.js || true
