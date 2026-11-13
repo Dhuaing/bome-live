@@ -88,6 +88,7 @@ node scripts/watch-live.js --reset
 
 | # | 坑 | 症状 | 解法/要点 |
 |---|---|---|---|
+| 13 | **计划任务脚本的编码/行尾双杀 + 临时目录依赖会被清理** | duty-task.bat 是 UTF-8+LF：cmd 按 GBK 解析 → `cd /d D:\小程序` 中文路径乱码失败 → 连续 6 晚 exit 1 无日志（LF 还让 `@echo off`/`rem` 全失效，每行被当命令跑）；CDP 助手放 %TEMP% 被系统周期清理 → duty 云端读数静默降级 | bat 必须 **ANSI(GBK) 编码 + CRLF 行尾**（注释用英文更稳）；仓库内脚本依赖（cdp-eval.js）**收进 repo**，不落 %TEMP%；新增云函数目录记得加入 sync-cloud-shared.js 的 FUNCTIONS 名单（否则 doctor 漂移告警硬性失败）；部署走 `--no-proxy-server` 启动的 IDE（IDE 缓存死代理 127.0.0.1:7890 会 ECONNRESET） |
 | 12 | **生成物手改 + CI 红灯没人看，两个洞一起漏** | 手改 `_shared/follow-record.js` 加 helper（未进生成器）→ check:rules 一跑重新生成即洗掉；更早 11-6 起 CI quality-gates 两跑 failure 无人察觉 | 铁律：**一切改动走生成器**（generate-follow-rules.js 模板），改规则源→gen:rules→提交；CI 红灯是「有事故未处理」信号，**每次推后必看 Actions 结果**（可从 `/commits/master/check-runs` API 查）。绿灯验证方法：`npm run check:rules` 退出 0 |
 | 11 | **`git ls-tree` 默认把非 ASCII 路径转义成带引号坏名** | GitHub API 推送脚本直接拿 ls-tree 输出当路径 → 远端 13 个中文文档路径变成 `"docs/\345\274\200..."`（引号+八进制转义全进了真实文件名） | `git ls-tree -r -z`（NUL 分隔不转义）且用二进制读出再按 UTF-8 解析；`Temp\opencode\api-push.js` 已修。远端树可用 `GET /git/trees/master?recursive=1` 数 `path -match '["\\]'` 条目终检（盘点应为 0） |
 | 10 | **CDP 管理端 `tcbUpdateItem` 的 `mgoUpdate` 是整文档替换，不是 $set patch** | 运维迁移只补一个字段（`mgoUpdate:{_openid}`）→ 其余字段（uniqueId/name/status）被整个洗掉，巡检 streamers 数骤降 | 云函数内 `doc().update({data:patch})` 才是增量语义；CDP 管理端更新必须**先读全文档→拼完整替换体→再写**（坑 #6 的姊妹教训，管理端更凶）；恢复验证以 `meta__metrics.streamers/records` 计数为终检证据 |

@@ -1,5 +1,7 @@
 @echo off
-rem 「播了么」自动值班：每天 21:00 由计划任务 bome-duty 调用
-rem 幂等：本地体检 + 读云端自检 + 写运维日志（--auto 仅提交日志）
-cd /d D:\小程序
+rem Bome duty: daily 21:00 via scheduled task bome-duty
+rem Idempotent: local checkup + cloud readback + ops log (--auto commits log)
+rem NOTE: keep this file ANSI(GBK) encoded + CRLF line endings (cmd batch rules);
+rem       UTF-8 or LF-only breaks parsing (incident 2026-11-13, 6 silent nights).
+cd /d D:\С����
 D:\node.exe scripts\duty.js --auto

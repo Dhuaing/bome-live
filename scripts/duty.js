@@ -4,8 +4,9 @@
  *
  * 做 4 件事，全幂等：
  *   1) 本地体检（doctor + 全量测试），任何硬性失败直接标记
- *   2) 尝试经 IDE 的 CDP 读云端自检数据（meta__guardian / meta__incidents /
- *      meta__pacing / meta__metrics）——IDE 未开或窗口忙时安全降级为「待读」
+ *   2) 读云端自检数据（meta__guardian / meta__incidents / meta__pacing /
+ *      meta__metrics / meta__orphans）——双通道：优先模拟器调 metaReader
+ *      云函数，失败回退 CDP 驱动云控制台；都没有则安全降级为「待读」
  *   3) 把体检 + 云端读数写成 docs/运维日志/YYYY-MM-DD.md（AI 下次接手先读它）
  *   4) --auto 模式：仅提交运维日志（不动代码），供 Windows 计划任务调用
  *
@@ -28,11 +29,45 @@ function sh(cmd, opts = {}) {
   }
 }
 
+/**
+ * 云端读数（双通道）：
+ *   ① 首选：模拟器 appservice 里 wx.cloud.callFunction('metaReader')——
+ *      不依赖云控制台 webview（它经常没开），IDE 项目开着即可读；
+ *   ② 回退：CDP 驱动 cloudconsolev1 webview（历史通道，保留）。
+ * 拿不到 ≠ 失败，是常态（值班日志如实降级）。
+ */
+function readCloudViaProbe() {
+  try {
+    let evalHelper = path.join(ROOT, 'scripts', 'cdp-eval.js');
+    if (!fs.existsSync(evalHelper)) {
+      evalHelper = path.join(process.env.TEMP || '', 'opencode', 'cdp-eval.js');
+      if (!fs.existsSync(evalHelper)) return { available: false, reason: '无 CDP 助手' };
+    }
+    const targets = JSON.parse(sh('powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:9223/json).Content"').out || '[]');
+    const hasSim = targets.some((t) => /simulator-app-session/.test(t.url || ''));
+    if (!hasSim) return { available: false, reason: '模拟器 appservice 未开' };
+    const expr = `(async()=>{ const r=await wx.cloud.callFunction({name:'metaReader',data:{}}); return r.result; })()`;
+    const b64 = Buffer.from(expr).toString('base64');
+    const out = sh(`node "${evalHelper}" simulator-app-session ${b64}`, { timeout: 60000 });
+    const parsed = JSON.parse(String(out.out).trim().slice(String(out.out).indexOf('{')));
+    const j = parsed && typeof parsed.value === 'object' ? parsed.value : parsed;
+    const d = j && j.data;
+    if (!d || typeof d !== 'object') return { available: false, reason: `metaReader 应答异常（${j && j.message || 'no-data'}）` };
+    return { available: true, data: d };
+  } catch (e) {
+    return { available: false, reason: String(e.message || e).slice(0, 120) };
+  }
+}
+
 /** 用 CDP 从 cloudconsolev1 webview 读云端自检数据（可能拿不到 ≠ 失败，是常态） */
 function readCloudViaCdp() {
   try {
-    const evalHelper = path.join(process.env.TEMP || '', 'opencode', 'cdp-eval.js');
-    if (!fs.existsSync(evalHelper)) return { available: false, reason: '无 CDP 助手' };
+    // 助手收进仓库（旧版放 %TEMP% 会被系统清理，坑位 #13），找不到时回退临时目录
+    let evalHelper = path.join(ROOT, 'scripts', 'cdp-eval.js');
+    if (!fs.existsSync(evalHelper)) {
+      evalHelper = path.join(process.env.TEMP || '', 'opencode', 'cdp-eval.js');
+      if (!fs.existsSync(evalHelper)) return { available: false, reason: '无 CDP 助手' };
+    }
     const targets = JSON.parse(sh('powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:9223/json).Content"').out || '[]');
     const hasCloud = targets.some((t) => /cloudconsolev1/.test(t.url || ''));
     if (!hasCloud) return { available: false, reason: '云控制台 webview 未开' };
@@ -54,7 +89,7 @@ function readCloudViaCdp() {
 
 function fmtCloudSection(cloud) {
   if (!cloud || !cloud.available) {
-    return `- （云端读数不可用：${(cloud && cloud.reason) || '未知'}——待 IDE 云控制台开启后让 AI 补读）`;
+    return `- （云端读数不可用：${(cloud && cloud.reason) || '未知'}——待 IDE（模拟器/云控制台）开启后让 AI 补读）`;
   }
   const d = cloud.data || {};
   const lines = [];
@@ -99,8 +134,10 @@ async function main() {
   const git = sh('git status --porcelain');
   report.push(`- git 工作区：${git.out.trim() ? `${git.out.trim().split('\n').length} 个未提交变更` : '干净'}`);
 
-  // 2) 云端读数（可能降级）
-  report.push('', '## 云端自检', fmtCloudSection(readCloudViaCdp()));
+  // 2) 云端读数（可能降级）：优先 metaReader 探针，失败回退云控制台 CDP
+  const probed = readCloudViaProbe();
+  const cloud = probed.available ? probed : readCloudViaCdp();
+  report.push('', '## 云端自检', fmtCloudSection(cloud));
 
   // 3) 落盘
   const dir = path.join(ROOT, 'docs', '运维日志');

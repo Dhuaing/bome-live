@@ -20,7 +20,7 @@ const SHARED_DIR = path.join(CF_ROOT, '_shared');
 const TARGET_SUBDIR = '_shared';
 
 /** 需要同步共享代码的云函数（按需增删） */
-const FUNCTIONS = ['getStreamerStatus', 'getUserFollows', 'toggleFollow', 'watchLive', 'notifyQuota', 'guardian'];
+const FUNCTIONS = ['getStreamerStatus', 'getUserFollows', 'toggleFollow', 'watchLive', 'notifyQuota', 'guardian', 'metaReader'];
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
