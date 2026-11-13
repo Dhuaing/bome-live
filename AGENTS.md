@@ -88,6 +88,7 @@ node scripts/watch-live.js --reset
 
 | # | 坑 | 症状 | 解法/要点 |
 |---|---|---|---|
+| 12 | **生成物手改 + CI 红灯没人看，两个洞一起漏** | 手改 `_shared/follow-record.js` 加 helper（未进生成器）→ check:rules 一跑重新生成即洗掉；更早 11-6 起 CI quality-gates 两跑 failure 无人察觉 | 铁律：**一切改动走生成器**（generate-follow-rules.js 模板），改规则源→gen:rules→提交；CI 红灯是「有事故未处理」信号，**每次推后必看 Actions 结果**（可从 `/commits/master/check-runs` API 查）。绿灯验证方法：`npm run check:rules` 退出 0 |
 | 11 | **`git ls-tree` 默认把非 ASCII 路径转义成带引号坏名** | GitHub API 推送脚本直接拿 ls-tree 输出当路径 → 远端 13 个中文文档路径变成 `"docs/\345\274\200..."`（引号+八进制转义全进了真实文件名） | `git ls-tree -r -z`（NUL 分隔不转义）且用二进制读出再按 UTF-8 解析；`Temp\opencode\api-push.js` 已修。远端树可用 `GET /git/trees/master?recursive=1` 数 `path -match '["\\]'` 条目终检（盘点应为 0） |
 | 10 | **CDP 管理端 `tcbUpdateItem` 的 `mgoUpdate` 是整文档替换，不是 $set patch** | 运维迁移只补一个字段（`mgoUpdate:{_openid}`）→ 其余字段（uniqueId/name/status）被整个洗掉，巡检 streamers 数骤降 | 云函数内 `doc().update({data:patch})` 才是增量语义；CDP 管理端更新必须**先读全文档→拼完整替换体→再写**（坑 #6 的姊妹教训，管理端更凶）；恢复验证以 `meta__metrics.streamers/records` 计数为终检证据 |
 | 9 | **add 依赖 SDK 自动注入 `_openid`，部分调用上下文会失效** | 新端点添加的关注落库后 `_openid` 字段整个缺失 → 该用户自己都查不到这条关注，巡检端还为 `undefined__*` 白跑状态档 | 写库方必须**显式**带 `_openid`（云函数用 `getWXContext().OPENID`），与读取端显式 `where` 对称；别赌 wx-server-sdk 自动注入。历史坑 #1 的姊妹教训 |
