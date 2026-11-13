@@ -80,6 +80,10 @@ export function usePolling({
         try { wx.offAppShow(onShow); } catch (e) { /* 同上 */ }
       };
     } else {
+      // H5 专属分支：document 只存在于 H5 运行时；weapp 构建时
+      // process.env.TARO_ENV 被替换为常量、本分支整体死代码消除，不进小程序包。
+      // Taro 没有页面可见性 API（wx.onAppShow 仅小程序），故此处按 lint 规则标注例外。
+      /* eslint-disable no-restricted-globals -- H5-only：编译期剔除，weapp 包不含本分支 */
       const onVisibility = () => {
         const hidden = document.visibilityState === 'hidden';
         if (hidden) {
@@ -91,6 +95,7 @@ export function usePolling({
       };
       document.addEventListener('visibilitychange', onVisibility);
       cleanup = () => document.removeEventListener('visibilitychange', onVisibility);
+      /* eslint-enable no-restricted-globals */
     }
 
     return cleanup;

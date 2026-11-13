@@ -29,6 +29,16 @@ const STRIP_QUERY_HASH = /[?#].*$/;
 /** 关注 / 取关动作 */
 const ACTIONS = ["follow","unfollow"];
 
+/**
+ * 关注记录确定性主键：同一用户对同一主播永远同一条。
+ * 用 _id 天然唯一性堵死并发双插（快速双击/网络重试两路请求的
+ * 读-写窗口双 add），比「查询后再插入」更可靠（查询窗口仍可见竞争）。
+ * （坑位 #9 的深化：写入端同样显式，不赌任何隐式行为）
+ */
+function buildFollowDocId(openid, uniqueId) {
+  return `${String(openid == null ? '' : openid).trim()}__${String(uniqueId == null ? '' : uniqueId).trim()}`;
+}
+
 /** 关注记录的默认字段 */
 const RECORD_DEFAULTS = {
   "platform": "douyin",
@@ -139,5 +149,6 @@ module.exports = {
   buildRoomUrl: buildRoomUrl,
   resolveRoomUrl: resolveRoomUrl,
   isValidAction: isValidAction,
-  buildFollowRecord: buildFollowRecord
+  buildFollowRecord: buildFollowRecord,
+  buildFollowDocId: buildFollowDocId
 };
