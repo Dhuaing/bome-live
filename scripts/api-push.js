@@ -62,11 +62,14 @@ function parseDiffZ(metaAndPaths) {
   const remoteTree = remoteCommit.tree.sha;
   console.log('远端头:', remoteCommitSha.slice(0, 8), 'tree:', remoteTree.slice(0, 8));
 
-  // 2. 本地提交链（新→旧），找到 tree 与远端一致的锚点
+  // 2. 本地提交链（新→旧）。远端头 tree 可能被坏重放污染，所以取远端
+  // 近若干提交的 tree 集合，找「最新一个 tree 已存在于远端」的本地提交作锚点。
+  const remoteCommits = await api('/repos/' + REPO + '/commits?per_page=30');
+  const remoteTreeSet = new Set(remoteCommits.map((c) => c.commit.tree.sha));
   const logRaw = git(['log', '--format=%H %T', 'HEAD']).toString().trim().split('\n');
   const chain = logRaw.map((l) => ({ sha: l.split(' ')[0], tree: l.split(' ')[1] }));
-  let anchorIdx = chain.findIndex((c) => c.tree === remoteTree);
-  if (anchorIdx < 0) { console.error('本地链上找不到与远端 tree 一致的锚点，中止'); process.exit(1); }
+  let anchorIdx = chain.findIndex((c) => remoteTreeSet.has(c.tree));
+  if (anchorIdx < 0) { console.error('本地链上找不到任何 tree 已在远端的锚点，中止'); process.exit(1); }
   const toPush = chain.slice(0, anchorIdx).reverse(); // 旧→新
   console.log('待重放提交数:', toPush.length, toPush.map((c) => c.sha.slice(0, 7)).join(','));
 
@@ -83,7 +86,12 @@ function parseDiffZ(metaAndPaths) {
 
     const treeEntries = [];
     for (const ch of changes) {
-      if (ch.status === 'D') continue; // base_tree 下不列出 = 删除
+      // Tree API 的 base_tree 是叠加语义：省略条目≠删除。
+      // 删除必须显式给 sha:null 条目（GitHub 文档语义）。
+      if (ch.status === 'D') {
+        treeEntries.push({ path: ch.path, mode: '100644', type: 'blob', sha: null });
+        continue;
+      }
       const content = gitBuf(['cat-file', 'blob', ch.blob]); // 二进制安全取内容
       const blob = await api('/repos/' + REPO + '/git/blobs', {
         method: 'POST',
@@ -112,16 +120,21 @@ function parseDiffZ(metaAndPaths) {
     });
     prevCommitSha = commit.sha;
     prevTree = tree.sha;
-    console.log('已重放', c.sha.slice(0, 7), '→', commit.sha.slice(0, 8), msg.split('\n')[0].slice(0, 40));
+    // 终检：重放后的 tree 必须与本地提交 tree 一致（内容等价），否则中止
+    if (tree.sha !== c.tree) {
+      console.error(`tree 不一致! 本地 ${c.tree.slice(0, 8)} vs 远端重放 ${tree.sha.slice(0, 8)} @ ${c.sha.slice(0, 7)}`);
+      process.exit(1);
+    }
+    console.log('已重放', c.sha.slice(0, 7), '→', commit.sha.slice(0, 8), 'tree 校验一致', msg.split('\n')[0].slice(0, 40));
   }
 
-  // 3. 快进 ref
+  // 3. 更新 ref（远端头可能已被坏重放污染，允许 force 由锚点之前的树保证安全）
   if (toPush.length) {
     await api('/repos/' + REPO + '/git/refs/heads/master', {
       method: 'PATCH',
-      body: JSON.stringify({ sha: prevCommitSha, force: false }),
+      body: JSON.stringify({ sha: prevCommitSha, force: true }),
     });
-    console.log('ref 已快进到', prevCommitSha.slice(0, 8));
+    console.log('ref 已更新到', prevCommitSha.slice(0, 8));
   }
 
   // 4. 坑 #11 终检：远端树不应有带引号/反斜杠的坏路径
