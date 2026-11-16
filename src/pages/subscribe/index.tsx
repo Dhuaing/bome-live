@@ -25,8 +25,8 @@ const SubscribePage: React.FC = () => {
 
   const livingCount = list.filter((s) => s.status === 'living').length;
 
-  // 订阅消息能力只有微信端有，且模板 ID 已配置才展示入口
-  const canNotify = process.env.TARO_ENV === 'weapp' && SUBS_TEMPLATE_ID !== '';
+  // 订阅消息入口在模板 ID 已配置时展示
+  const canNotify = SUBS_TEMPLATE_ID !== '';
 
   // 打开页面自动补攒一条额度（静默，不出提示）+ 顺路刷新额度显示：
   // 勾过「总是允许」的用户每次进来无感 +1；未勾选的用户微信会忽略无手势调用。

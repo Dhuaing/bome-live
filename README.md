@@ -1,13 +1,12 @@
 # 播了么
 
-抖音主播开播状态查询 + 开播提醒。Taro 4 + React 18 + TypeScript，同一套代码构建 **H5** 与 **微信小程序**。
+抖音主播开播状态查询 + 开播提醒。Taro 4 + React 18 + TypeScript，构建 **微信小程序**。
 
 ## 功能
 
 - 输入抖音号（或粘贴直播间地址）关注主播
 - 查看已关注主播的实时开播状态、在线人数、开播时长
 - 开播时自动推送微信提醒：云端定时巡检为主体（关机也提醒），本机脚本备用
-- H5 与小程序各自独立存储，互不影响
 
 ## 技术栈
 
@@ -34,7 +33,7 @@
 │  │  ├─ useFollowsWithStatus.ts  关注列表 + 实时状态合并（三个 tab 页共用）
 │  │  └─ useLiveStatus.ts         单个主播状态轮询（详情页用）
 │  ├─ services/
-│  │  ├─ cloud.ts                 云函数调用封装（H5 走 /api，失败抛错）
+│  │  ├─ cloud.ts                 云函数调用封装（失败抛错）
 │  │  ├─ streamer.ts              getStreamerStatus / toggleFollow / getUserFollows
 │  │  └─ liveStatusCache.ts       状态查询的 TTL 缓存 + 并发合并
 │  ├─ store/streamer.tsx          关注状态 Context（乐观更新 + 回滚）
@@ -47,9 +46,8 @@
 │  ├─ getUserFollows/             读云数据库 follows 集合（按 openid 隔离）
 │  ├─ toggleFollow/               写云数据库 follows 集合
 │  └─ watchLive/                  定时巡检 + 订阅消息推送 + 故障告警（见 docs/开播提醒云化方案.md）
-├─ scripts/                       H5 本地服务与巡检
-│  ├─ serve-h5.js                 H5 静态服务 + /api 同源代理 + 本地关注接口
-│  ├─ follows-store.js            关注列表读写（H5 端唯一真源）
+├─ scripts/                       巡检与工具脚本
+│  ├─ follows-store.js            关注列表读写（巡检读取）
 │  ├─ cloud-env.js                云环境配置（Node 侧）
 │  ├─ watch-live.js               开播巡检 + nanobot 推送
 │  └─ svg2png-tabbar.js           tabBar 图标 SVG → PNG（微信不支持 svg）
@@ -64,11 +62,7 @@
 npm install --legacy-peer-deps
 
 # 构建
-npm run build:h5        # → dist-h5/
 npm run build:weapp     # → dist-weapp/
-
-# H5 本地预览（http://localhost:3000）
-npm run serve:h5
 
 # 开播巡检
 npm run watch:live
@@ -89,15 +83,9 @@ node scripts/watch-live.js --reset        # 清空巡检状态
 
 ## 数据存储
 
-两端各自独立：
-
 | 端 | 存储 | 隔离方式 |
 |---|---|---|
-| H5 | `scripts/follows.json` | 单机单用户 |
 | 小程序 | 云数据库 `follows` 集合 | 微信自动注入 `_openid`，按用户隔离 |
-
-`follows.json` 有数据保护：文件损坏时抛错中止（不会静默当成空列表回写），
-每次写入前自动备份到 `follows.json.bak`。
 
 ## 环境配置
 
@@ -112,12 +100,8 @@ node scripts/watch-live.js --reset        # 清空巡检状态
 SUBS_TEMPLATE_ID=your-tmplId npm run build:weapp   # 小程序端「开启提醒」入口由它点亮（留空则隐藏）
 ```
 
-```bash
-TCB_ENV_ID=your-env-id npm run build:h5
-```
-
 > 注意：源码里不要直接写 `process.env.XXX`（未在 `defineConstants` 声明的键
-> 会原样进入产物，导致浏览器端 `process is not defined` 白屏）。
+> 会原样进入产物，导致运行时 `process is not defined` 白屏）。
 
 ## 已知限制
 
@@ -127,31 +111,10 @@ TCB_ENV_ID=your-env-id npm run build:h5
 - **提醒额度依赖授权**：个人小程序只有一次性订阅消息，
   用户每次在小程序里点「开启」攒一条推送额度，没攒过额度收不到。
 - **两链路勿同开**：云端 watchLive 与本机 watch-live.js 状态互不同步，同开会对同一场直播重复推送。
-- **H5 无鉴权**：`serve-h5.js` 默认只监听 `127.0.0.1`，未做身份认证，不要直接暴露到公网。
-
-## 安全说明
-
-H5 本地服务（`scripts/serve-h5.js`）已按 STRIDE 建模做了加固：
-
-| 措施 | 说明 |
-|---|---|
-| 仅监听回环 | 默认 `127.0.0.1`，局域网不可达。需要手机同网调试时用 `HOST=0.0.0.0` 显式放开 |
-| CSRF 防护 | 写接口校验 `Origin`（必须是本机来源）+ 要求 `Content-Type: application/json` |
-| 请求体上限 | 64KB，超限返回 413，防止内存耗尽 |
-| 安全响应头 | `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、CSP |
-| 错误脱敏 | 对外只返回通用消息，绝对路径/堆栈只进服务端日志 |
-| 字段清洗 | `name` 限 64 字符，`avatar`/`roomUrl` 只接受 http(s) 协议 |
-
-安全回归探针：
-
-```bash
-npm run serve:h5          # 另开终端
-npm run test:security     # 9 项检查，全绿才算通过
-```
 
 > 云函数网关的访问鉴权（CloudBase 控制台配置）仍为关闭状态。
-> 该网关只代理一个只读查询（`getStreamerStatus`），在「本机自用」前提下可接受；
-> **若要部署到公网或上线小程序，必须先重新评估整套鉴权方案。**
+> 小程序端只通过 `Taro.cloud` 调用云函数（微信注入 openid）；
+> **若要扩展为公网 HTTP 网关，必须先重新评估整套鉴权方案。**
 
 ## 共享规则（单一真相）
 
@@ -208,7 +171,7 @@ src/services/ports.ts          FollowRepository / LiveStatusProvider / IdentityP
 src/services/streamer.ts       cloudFollowRepository / cloudLiveStatusProvider（当前实现）
         │
         ▼
-src/services/cloud.ts          传输层（H5: fetch / 小程序: Taro.cloud）
+src/services/cloud.ts          传输层（Taro.cloud）
 ```
 
 **换数据后端的成本**：新增一个实现文件，业务代码不动。
@@ -217,7 +180,7 @@ src/services/cloud.ts          传输层（H5: fetch / 小程序: Taro.cloud）
 
 | 实现 | 用途 |
 |---|---|
-| `cloudFollowRepository` | 当前：H5 走 `/api`，小程序走 `Taro.cloud` |
+| `cloudFollowRepository` | 当前：`Taro.cloud` 直连云函数 |
 | `createMemoryFollowRepository` | 测试用，也是「如何写一个新实现」的样板 |
 
 `scripts/ports.contract.test.js` 验证任意实现都能满足同一套契约，并遵循相同的字段清洗规则。
@@ -234,6 +197,5 @@ src/services/cloud.ts          传输层（H5: fetch / 小程序: Taro.cloud）
 npx tsc --noEmit       # 应为 0 错误
 npm test               # 22 个单测（规则一致性 + 接口契约）
 npm run check:rules    # 生成物与规则源是否同步
-npm run test:security  # STRIDE 安全回归（需服务已启动）
 npx eslint src         # 建议接入 CI
 ```

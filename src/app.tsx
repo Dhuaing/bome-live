@@ -20,12 +20,10 @@ function App({ children }: PropsWithChildren) {
 }
 
 // 模块加载期同步初始化云开发（wx.cloud.init 幂等，早于任何组件 effect）
-if (process.env.TARO_ENV === 'weapp') {
-  try {
-    Taro.cloud.init({ env: CLOUD_ENV_ID, traceUser: true });
-  } catch (e) {
-    console.error('[App] cloud init failed:', e);
-  }
+try {
+  Taro.cloud.init({ env: CLOUD_ENV_ID, traceUser: true });
+} catch (e) {
+  console.error('[App] cloud init failed:', e);
 }
 
 export default App;

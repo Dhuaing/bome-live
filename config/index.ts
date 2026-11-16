@@ -15,11 +15,8 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
       828: 1.81 / 2,
     },
     sourceRoot: 'src',
-    // h5 与小程序必须分开输出，否则两种构建互相覆盖产物。
     // 小程序端 project.config.json 的 miniprogramRoot 指向 dist-weapp/。
-    outputRoot:
-      process.env.TARO_OUTPUT_DIR ||
-      (process.env.TARO_ENV === 'h5' ? 'dist-h5' : 'dist-weapp'),
+    outputRoot: process.env.TARO_OUTPUT_DIR || 'dist-weapp',
     plugins: ['@tarojs/plugin-html'],
     // 云开发环境 ID / 网关域名在编译期注入。
     // 必须在这里显式声明：webpack 只替换列出的键，
@@ -63,43 +60,6 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
           config: {
             namingPattern: 'module', // 仅 *.module.scss 生效
             generateScopedName: '[name]__[local]___[hash:base64:5]',
-          },
-        },
-      },
-      webpackChain(chain) {
-        chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin);
-      },
-    },
-    h5: {
-      publicPath: '/',
-      staticDirectory: 'static',
-      output: {
-        filename: 'js/[name].[hash:8].js',
-        chunkFilename: 'js/[name].[chunkhash:8].js',
-      },
-      miniCssExtractPluginOption: {
-        ignoreOrder: true,
-        filename: 'css/[name].[hash].css',
-        chunkFilename: 'css/[name].[chunkhash].css',
-      },
-      postcss: {
-        autoprefixer: {
-          enable: true,
-          config: {},
-        },
-        cssModules: {
-          enable: true, // 开启 CSS Modules
-          config: {
-            namingPattern: 'module', // 仅 *.module.scss 生效
-            generateScopedName: '[name]__[local]___[hash:base64:5]',
-          },
-        },
-        pxtransform: {
-          enable: true,
-          config: {
-            selectorBlackList: ['body'],
-            baseFontSize: 37.5,
-            unitPrecision: 5,
           },
         },
       },

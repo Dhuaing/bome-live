@@ -27,7 +27,7 @@ const requestSubscribeMessage = Taro.requestSubscribeMessage as unknown as (
  * 三种结果都给用户明确反馈，不假装成功：
  * - accepted：用户同意，攒了一条额度
  * - rejected：用户拒绝总开关或该次弹窗（可再次点击开启）
- * - unavailable：H5 端或模板 ID 未配置，链路本身不可用
+ * - unavailable：模板 ID 未配置，链路本身不可用
  */
 export async function requestLiveNotifyPermission(
   opts: { silent?: boolean } = {}
@@ -36,12 +36,6 @@ export async function requestLiveNotifyPermission(
     ? () => {}
     : (title: string, icon: 'none' | 'success' = 'none') =>
         Taro.showToast({ title, icon });
-  // H5 端没有微信订阅消息能力
-  if (process.env.TARO_ENV !== 'weapp') {
-    show('开播提醒请使用微信小程序打开');
-    return 'unavailable';
-  }
-
   // 模板还没配置（touristappid 阶段走不到这一步，这里兜底防止误报错）
   if (!SUBS_TEMPLATE_ID) {
     show('提醒模板尚未配置，暂不可开启');

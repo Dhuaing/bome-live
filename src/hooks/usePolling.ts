@@ -32,7 +32,6 @@ interface UsePollingOptions {
  * 不会触发——轮询器还在空转烧云函数调用与电量。这里：
  *   - onHide 置暂停位（周期任务静默跳过）
  *   - onShow 自动补拉一轮静默刷新，回到前台数据立即对齐
- * 小程序走 wx.onAppHide/onAppShow；H5 走 visibilitychange。
  */
 export function usePolling({
   interval,
@@ -64,41 +63,18 @@ export function usePolling({
   // 前后台感知：hide 暂停 · show 补拉
   useEffect(() => {
     if (!enabled) return;
-    let cleanup = () => {};
-
-    if (process.env.TARO_ENV === 'weapp') {
-      const onHide = () => { pausedRef.current = true; };
-      const onShow = () => {
-        if (!pausedRef.current) return; // 常规 tab 切换不触发 App 级 show
-        pausedRef.current = false;
-        taskRef.current(true); // 静默补拉，避免 loading 闪烁
-      };
-      wx.onAppHide(onHide);
-      wx.onAppShow(onShow);
-      cleanup = () => {
-        try { wx.offAppHide(onHide); } catch (e) { /* 老基础库无 off 版本时忽略 */ }
-        try { wx.offAppShow(onShow); } catch (e) { /* 同上 */ }
-      };
-    } else {
-      // H5 专属分支：document 只存在于 H5 运行时；weapp 构建时
-      // process.env.TARO_ENV 被替换为常量、本分支整体死代码消除，不进小程序包。
-      // Taro 没有页面可见性 API（wx.onAppShow 仅小程序），故此处按 lint 规则标注例外。
-      /* eslint-disable no-restricted-globals -- H5-only：编译期剔除，weapp 包不含本分支 */
-      const onVisibility = () => {
-        const hidden = document.visibilityState === 'hidden';
-        if (hidden) {
-          pausedRef.current = true;
-        } else if (pausedRef.current) {
-          pausedRef.current = false;
-          taskRef.current(true);
-        }
-      };
-      document.addEventListener('visibilitychange', onVisibility);
-      cleanup = () => document.removeEventListener('visibilitychange', onVisibility);
-      /* eslint-enable no-restricted-globals */
-    }
-
-    return cleanup;
+    const onHide = () => { pausedRef.current = true; };
+    const onShow = () => {
+      if (!pausedRef.current) return; // 常规 tab 切换不触发 App 级 show
+      pausedRef.current = false;
+      taskRef.current(true); // 静默补拉，避免 loading 闪烁
+    };
+    wx.onAppHide(onHide);
+    wx.onAppShow(onShow);
+    return () => {
+      try { wx.offAppHide(onHide); } catch (e) { /* 老基础库无 off 版本时忽略 */ }
+      try { wx.offAppShow(onShow); } catch (e) { /* 同上 */ }
+    };
   }, [enabled]);
 
   // 外部要求刷新：只补拉一次（不重置计时器）

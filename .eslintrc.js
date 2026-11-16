@@ -55,5 +55,5 @@ module.exports = {
       }
     }
   ],
-  ignorePatterns: ['node_modules/', 'dist/', 'dist-h5/', 'dist-weapp/', '.swc/', '*.js']
+  ignorePatterns: ['node_modules/', 'dist/', 'dist-weapp/', '.swc/', '*.js']
 };

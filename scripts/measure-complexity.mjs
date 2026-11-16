@@ -9,7 +9,7 @@ import path from 'node:path';
 
 const ROOTS = ['src', 'scripts', 'cloudfunctions', 'config'];
 const EXTS = ['.ts', '.tsx', '.js'];
-const IGNORE = ['node_modules', 'dist', 'dist-h5', 'dist-weapp', '.swc'];
+const IGNORE = ['node_modules', 'dist', 'dist-weapp', '.swc'];
 
 /** 递归收集源文件 */
 function collect(dir, out = []) {

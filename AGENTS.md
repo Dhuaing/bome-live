@@ -7,7 +7,7 @@
 
 微信小程序「播了么」：追抖音主播直播，核心卖点是**电脑关机也能收到开播提醒**。
 
-- 前端：Taro 4 + React，一套代码出 H5（`dist-h5`）与微信小程序（`dist-weapp`）
+- 前端：Taro 4 + React，构建微信小程序（`dist-weapp`）
 - 后端：微信云开发（免费环境）+ 云函数 + 定时触发器 + 订阅消息推送
 - 本机脚本 `scripts/watch-live.js` 是旧架构（必须开机），已由云端接管，仅作备用
 
@@ -88,6 +88,7 @@ node scripts/watch-live.js --reset
 
 | # | 坑 | 症状 | 解法/要点 |
 |---|---|---|---|
+| 14 | **删端不只删代码，还要拆 CI/文档/探针的整条链** | 删 H5 端：src 分支、config h5 段、serve-h5.js 都清了，但 ci.yml 的质量门 5/6（build:h5 + serve:h5&探针）还在跑会直接红；security-probe/http-body/security 三个只被 H5 链用的脚本成了孤儿；README/AGENTS/tsconfig/.gitignore/measure-complexity IGNORE 里全是 dist-h5 残留 | 删端按依赖反查：`grep serve-h5\|test:security\|dist-h5` 全仓（含 .github、tsconfig exclude、eslint ignorePatterns、.gitignore）；`npm uninstall <dep>` 更新 lock（不能只手改 package.json）；文档里的架构图/质量门清单要同步，历史文档（.trae/报告）留原样不追改 |
 | 13 | **计划任务脚本的编码/行尾双杀 + 临时目录依赖会被清理** | duty-task.bat 是 UTF-8+LF：cmd 按 GBK 解析 → `cd /d D:\小程序` 中文路径乱码失败 → 连续 6 晚 exit 1 无日志（LF 还让 `@echo off`/`rem` 全失效，每行被当命令跑）；CDP 助手放 %TEMP% 被系统周期清理 → duty 云端读数静默降级 | bat 必须 **ANSI(GBK) 编码 + CRLF 行尾**（注释用英文更稳）；仓库内脚本依赖（cdp-eval.js）**收进 repo**，不落 %TEMP%；新增云函数目录记得加入 sync-cloud-shared.js 的 FUNCTIONS 名单（否则 doctor 漂移告警硬性失败）；部署走 `--no-proxy-server` 启动的 IDE（IDE 缓存死代理 127.0.0.1:7890 会 ECONNRESET） |
 | 12 | **生成物手改 + CI 红灯没人看，两个洞一起漏** | 手改 `_shared/follow-record.js` 加 helper（未进生成器）→ check:rules 一跑重新生成即洗掉；更早 11-6 起 CI quality-gates 两跑 failure 无人察觉 | 铁律：**一切改动走生成器**（generate-follow-rules.js 模板），改规则源→gen:rules→提交；CI 红灯是「有事故未处理」信号，**每次推后必看 Actions 结果**（可从 `/commits/master/check-runs` API 查）。绿灯验证方法：`npm run check:rules` 退出 0 |
 | 11 | **`git ls-tree` 默认把非 ASCII 路径转义成带引号坏名** | GitHub API 推送脚本直接拿 ls-tree 输出当路径 → 远端 13 个中文文档路径变成 `"docs/\345\274\200..."`（引号+八进制转义全进了真实文件名） | `git ls-tree -r -z`（NUL 分隔不转义）且用二进制读出再按 UTF-8 解析；`Temp\opencode\api-push.js` 已修。远端树可用 `GET /git/trees/master?recursive=1` 数 `path -match '["\\]'` 条目终检（盘点应为 0） |
