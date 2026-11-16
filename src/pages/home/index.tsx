@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Image, Button, Swiper, SwiperItem } from '@tarojs/components';
-import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
+import Taro, { useDidShow, usePullDownRefresh, useShareAppMessage, useShareTimeline } from '@tarojs/taro';
 import { platformMap } from '@/constants/platform';
 import type { Streamer } from '@/types/streamer';
 import { formatCount, formatDuration } from '@/utils/time';
@@ -38,6 +38,19 @@ const HomePage: React.FC = () => {
     refresh();
     Taro.stopPullDownRefresh();
   });
+
+  // 转发/朋友圈：公开传播通道（在播时卡片带上主播名，更有点击欲）
+  useShareAppMessage(() => ({
+    title:
+      featured && featured.status === 'living'
+        ? `${featured.name} 正在直播 · 播了么`
+        : '播了么——主播开播提醒，不错过每一场直播',
+    path: '/pages/home/index'
+  }));
+  useShareTimeline(() => ({
+    title: '播了么——主播开播提醒，不错过每一场直播',
+    path: '/pages/home/index'
+  }));
 
   useDidShow(() => {
     refresh();

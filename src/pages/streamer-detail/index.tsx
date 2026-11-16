@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Image, Button } from '@tarojs/components';
-import Taro, { useRouter } from '@tarojs/taro';
+import Taro, { useRouter, useShareAppMessage, useShareTimeline } from '@tarojs/taro';
 import classnames from 'classnames';
 import { platformMap } from '@/constants/platform';
 import { formatCount, formatDuration } from '@/utils/time';
@@ -19,6 +19,16 @@ const StreamerDetailPage: React.FC = () => {
   const record = follows.find((f) => f.uniqueId === uniqueId);
 
   const { status: liveStatus, loading } = useLiveStatus({ uniqueId, interval: 60000 });
+
+  // 转发/朋友圈：公开传播通道（任何人都能把卡片转给好友；对方点开即用）
+  useShareAppMessage(() => ({
+    title: `${record?.name || uniqueId} 的开播提醒 · 播了么`,
+    path: `/pages/streamer-detail/index?id=${uniqueId}`
+  }));
+  useShareTimeline(() => ({
+    title: `${record?.name || uniqueId} 的开播提醒 · 播了么`,
+    path: `/pages/streamer-detail/index?id=${uniqueId}`
+  }));
 
   if (!uniqueId) {
     return (
