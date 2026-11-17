@@ -41,11 +41,14 @@
 │  ├─ constants/                  platform.ts（平台展示）/ cloud.ts（环境配置）
 │  ├─ utils/time.ts               时间格式化
 │  └─ types/                      类型定义
-├─ cloudfunctions/                微信云函数
+├─ cloudfunctions/                微信云函数（7 个）
 │  ├─ getStreamerStatus/          抓抖音 SSR 查询开播状态（带 25s 缓存）
 │  ├─ getUserFollows/             读云数据库 follows 集合（按 openid 隔离）
 │  ├─ toggleFollow/               写云数据库 follows 集合
-│  └─ watchLive/                  定时巡检 + 订阅消息推送 + 故障告警（见 docs/开播提醒云化方案.md）
+│  ├─ watchLive/                  定时巡检 + 订阅消息推送 + 故障告警（见 docs/开播提醒云化方案.md）
+│  ├─ notifyQuota/                订阅额度账本（攒额度/扣额度）
+│  ├─ guardian/                   云端自检（每日定时，写 meta__guardian 等元文档）
+│  └─ metaReader/                 运维读数专用（值班脚本读云端自检数据）
 ├─ scripts/                       巡检与工具脚本
 │  ├─ follows-store.js            关注列表读写（巡检读取）
 │  ├─ cloud-env.js                云环境配置（Node 侧）
@@ -93,6 +96,9 @@ node scripts/watch-live.js --reset        # 清空巡检状态
 
 - 前端：`src/constants/cloud.ts`，值由 `config/index.ts` 的 `defineConstants` 编译期注入
 - Node 脚本：`scripts/cloud-env.js`
+
+> **他人部署必须替换**：代码里的默认值是原作者的线上环境，直接使用会把数据读写到
+> 别人的云环境。请设置 `TCB_ENV_ID`（参考 `.env.example`）为你的环境 ID。
 
 订阅消息模板 ID 走同一机制：
 

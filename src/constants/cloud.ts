@@ -13,9 +13,9 @@
  * 会原样保留到产物里，运行时因 `process` 不存在而白屏。
  */
 
-/** 云开发环境 ID（编译期由 defineConstants 注入） */
+/** 云开发环境 ID（编译期由 defineConstants 注入；默认值=线上真实环境，防忘传 env 时连旧环境——坑 #5 根治） */
 export const CLOUD_ENV_ID: string =
-  process.env.TARO_APP_CLOUD_ENV_ID || 'bome-app-d6gb6gk0j89b15e5e';
+  process.env.TARO_APP_CLOUD_ENV_ID || 'bome-livedongyailongwang-d91c6e8';
 
 /** 云函数 HTTP 网关域名（Node 侧脚本直连用；小程序端不经此，走 Taro.cloud） */
 export const CLOUD_GATEWAY_HOST: string =

@@ -14,6 +14,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -30,20 +31,47 @@ function sh(cmd, opts = {}) {
 }
 
 /**
+ * 读 IDE CDP (9223) 的 target 列表。
+ * 用 node 原生 http（不走系统代理、失败返回 null 而非报错文本）。
+ * 历史坑：旧实现用 PowerShell Invoke-WebRequest——一是会吃系统死代理
+ * 127.0.0.1:7890（坑位表 IDE 代理坑），二是失败文本 "Invoke-WebRequest : ..."
+ * 混进输出被 JSON.parse 后报 "Unexpected token 'I'"，把真实原因（IDE 未运行）
+ * 洗成了乱码。
+ */
+function getCdpTargets() {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port: 9223, path: '/json', timeout: 5000 }, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
+/**
  * 云端读数（双通道）：
  *   ① 首选：模拟器 appservice 里 wx.cloud.callFunction('metaReader')——
  *      不依赖云控制台 webview（它经常没开），IDE 项目开着即可读；
  *   ② 回退：CDP 驱动 cloudconsolev1 webview（历史通道，保留）。
  * 拿不到 ≠ 失败，是常态（值班日志如实降级）。
  */
-function readCloudViaProbe() {
+async function readCloudViaProbe() {
   try {
     let evalHelper = path.join(ROOT, 'scripts', 'cdp-eval.js');
     if (!fs.existsSync(evalHelper)) {
       evalHelper = path.join(process.env.TEMP || '', 'opencode', 'cdp-eval.js');
       if (!fs.existsSync(evalHelper)) return { available: false, reason: '无 CDP 助手' };
     }
-    const targets = JSON.parse(sh('powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:9223/json).Content"').out || '[]');
+    const targets = await getCdpTargets();
+    if (!targets) return { available: false, reason: 'IDE CDP(9223) 未响应（IDE 未运行）' };
     const hasSim = targets.some((t) => /simulator-app-session/.test(t.url || ''));
     if (!hasSim) return { available: false, reason: '模拟器 appservice 未开' };
     const expr = `(async()=>{ const r=await wx.cloud.callFunction({name:'metaReader',data:{}}); return r.result; })()`;
@@ -60,7 +88,7 @@ function readCloudViaProbe() {
 }
 
 /** 用 CDP 从 cloudconsolev1 webview 读云端自检数据（可能拿不到 ≠ 失败，是常态） */
-function readCloudViaCdp() {
+async function readCloudViaCdp() {
   try {
     // 助手收进仓库（旧版放 %TEMP% 会被系统清理，坑位 #13），找不到时回退临时目录
     let evalHelper = path.join(ROOT, 'scripts', 'cdp-eval.js');
@@ -68,7 +96,8 @@ function readCloudViaCdp() {
       evalHelper = path.join(process.env.TEMP || '', 'opencode', 'cdp-eval.js');
       if (!fs.existsSync(evalHelper)) return { available: false, reason: '无 CDP 助手' };
     }
-    const targets = JSON.parse(sh('powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:9223/json).Content"').out || '[]');
+    const targets = await getCdpTargets();
+    if (!targets) return { available: false, reason: 'IDE CDP(9223) 未响应（IDE 未运行）' };
     const hasCloud = targets.some((t) => /cloudconsolev1/.test(t.url || ''));
     if (!hasCloud) return { available: false, reason: '云控制台 webview 未开' };
     const expr = `(async()=>{ const db=window.cloudApi; const read=async c=>{ try{ const r=await db.tcbQueryRecords({envId:'bome-livedongyailongwang-d91c6e8',tableName:'watchState',mgoQuery:JSON.stringify({_id:c}),mgoLimit:5}); return (r&&r.data&&r.data[0])?JSON.parse(r.data[0]):null; }catch(e){ return null; } }; return {guardian:await read('meta__guardian'), incidents:await read('meta__incidents'), pacing:await read('meta__pacing'), metrics:await read('meta__metrics'), orphans:await read('meta__orphans')}; })()`;
@@ -135,8 +164,8 @@ async function main() {
   report.push(`- git 工作区：${git.out.trim() ? `${git.out.trim().split('\n').length} 个未提交变更` : '干净'}`);
 
   // 2) 云端读数（可能降级）：优先 metaReader 探针，失败回退云控制台 CDP
-  const probed = readCloudViaProbe();
-  const cloud = probed.available ? probed : readCloudViaCdp();
+  const probed = await readCloudViaProbe();
+  const cloud = probed.available ? probed : await readCloudViaCdp();
   report.push('', '## 云端自检', fmtCloudSection(cloud));
 
   // 3) 落盘
