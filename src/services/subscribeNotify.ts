@@ -43,12 +43,15 @@ export async function requestLiveNotifyPermission(
   }
 
   try {
+    // 幂等键：本次弹窗调用生成一个，只有真正 accept 才随 earn 上送——
+    // 云端按它去重，同一「允许」的重试/双击不会双记账
+    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
     const res = await requestSubscribeMessage({ tmplIds: [SUBS_TEMPLATE_ID] });
     const accepted =
       res[SUBS_TEMPLATE_ID] === 'accept' && (res.errMsg || 'ok').includes('ok');
     if (accepted) {
       // 平台侧额度 +1 已发生，把它记进自建账本（显示层宁虚低不虚高）
-      await earnQuota();
+      await earnQuota(requestId);
       show('已开启开播提醒', 'success');
       return 'accepted';
     }

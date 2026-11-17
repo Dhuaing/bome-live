@@ -13,14 +13,25 @@
  * 用户看到的数字只会保守。错误方向是「显示 0 但其实有」，代价只是
  * 用户多点一次「开启」——不像虚高会让他白等提醒。
  *
- * IO 规则沿用 watchState 的教训（坑 #6）：doc().update() 对不存在
- * 文档是静默空操作——先读后写（add 带自定义 _id，冲突时回退 update）。
+ * 写入规则（2026-11-17 健壮性加固，取代旧「读-改-写」三步推演）：
+ * 旧实现 read→apply→add/update 整体非原子，并发 earn/spend 交错会丢事件
+ * （丢 spend = 虚高，直接违反上面的原则）；且 readQuotaDoc 曾把「读失败」
+ * 当「不存在」，瞬时网络抖动会用空账本覆盖真实账本（销毁对账历史）。
+ * 现在全部改为数据库端原子操作：
+ * - earn ：add 首档（quota=1），冲突则 inc(+1)（inc 服务端原子执行）
+ * - spend：where quota>0 条件 inc(-1)——扣不到负（宁虚低）且并发安全；
+ *          updated=0 再区分「余额本来就是 0」与「文档不存在」
+ * - zero ：无条件把余额写 0（校准不依赖旧值，天然原子）
+ * 读规则：不存在返回 null；读失败抛错——绝不能拿空账本覆盖真实账本。
  *
  * 云函数 watchLive 与 notifyQuota 经 sync-cloud-shared.js 拿到副本。
  */
 
 /**
  * 纯函数：按账本事件推演下一份账本字段（不落库）。
+ *
+ * 保留价值：单测钉死各事件的语义基线；also 作为语义参考——
+ * commitEvent 的原子写路径必须与这里的推演结果等价。
  *
  * @param {object|undefined} doc 现有账本文档（无则视为全新）
  * @param {{type: 'earn'|'spend'|'zero', at?: number}} event
@@ -51,37 +62,117 @@ function applyLedgerEvent(doc, event) {
   }
 }
 
-/** 读账本（不存在返回 { quota: 0, totalEarned: 0, totalSpent: 0 }） */
+/** 判断 add 报错是否「_id 已存在」（并发首档创建的冲突信号） */
+function isDupKeyError(e) {
+  const s = String((e && (e.errCode !== undefined ? e.errCode : e.errMsg)) || (e && e.message) || e);
+  return /exists|duplicate|602|duplicate key/i.test(s);
+}
+
+/** 判断 get 报错是否「文档不存在」——必须与网络抖动等其他读失败严格区分 */
+function isNotExistError(e) {
+  const code = e && e.errCode;
+  if (code === -502005) return true; // RESOURCE_NOT_FOUND 类
+  const s = String((e && (e.errMsg || e.message)) || e);
+  return /not exists|not_exist|NOT_FOUND/i.test(s);
+}
+
+/**
+ * 读账本文档。
+ * - 不存在 → null（调用方按空账本语义处理）
+ * - 读失败 → 抛错（调用方决定怎么办；绝不能静默当 null 用空账本覆盖）
+ */
 async function readQuotaDoc(db, collName, openid) {
   try {
     const res = await db.collection(collName).doc(openid).get();
     return (res && res.data && typeof res.data === 'object') ? res.data : null;
   } catch (e) {
-    return null; // 文档不存在或网络抖动，按空账本处理
+    if (isNotExistError(e)) return null;
+    throw e;
   }
 }
 
 /**
- * 读后写地把一个事件应用进账本（自动处理首档创建与并发冲突）。
- * @returns {{quota, totalEarned, totalSpent, correctedAt?}} 最新账本
+ * 把一个账本事件原子地写入账本。
+ *
+ * @returns {Promise<{quota,totalEarned,totalSpent,correctedAt?}|null>}
+ *          提交后的最新账本读数（提交后回读；读不回时为 null，
+ *          调用方按「未知」处理，不伪造数字）
  */
 async function commitEvent(db, collName, openid, event) {
   const coll = db.collection(collName);
-  const prev = await readQuotaDoc(db, collName, openid);
-  const next = applyLedgerEvent(prev, event);
-  const patch = { ...next, updatedAt: event && event.at || Date.now() };
+  const _ = db.command;
+  const type = event && event.type;
+  const at = (event && event.at) || Date.now();
 
-  if (!prev) {
+  /** 提交后回读最新账本；回读失败不回滚提交（原子写已成功），按未知处理 */
+  async function readBack() {
     try {
-      await coll.add({ data: { _id: openid, ...patch } });
-      return next;
+      return await readQuotaDoc(db, collName, openid);
     } catch (e) {
-      // 并发下文档已被他人建立 → 退回 update 覆盖为最新推演值
-      if (!/exists|602|duplicate/i.test(String(e.errCode || e.errMsg || e.message))) throw e;
+      return null;
     }
   }
-  await coll.doc(openid).update({ data: patch });
-  return next;
+
+  if (type === 'earn') {
+    // 首档创建（全新账本 = quota 1）：自定义 _id 直接 add
+    try {
+      await coll.add({ data: { _id: openid, quota: 1, totalEarned: 1, totalSpent: 0, updatedAt: at } });
+      return { quota: 1, totalEarned: 1, totalSpent: 0 };
+    } catch (e) {
+      if (!isDupKeyError(e)) throw e;
+      // 并发下文档已被他人建立 → 退回原子 inc
+    }
+    await coll.doc(openid).update({
+      data: { quota: _.inc(1), totalEarned: _.inc(1), updatedAt: at }
+    });
+    return await readBack();
+  }
+
+  if (type === 'spend') {
+    // 条件原子扣减：只在 quota>0 时扣——既防并发双扣，也保证扣不到负（宁虚低）
+    const r = await coll
+      .where({ _id: openid, quota: _.gt(0) })
+      .update({ data: { quota: _.inc(-1), totalSpent: _.inc(1), updatedAt: at } });
+    if (r && r.stats && r.stats.updated > 0) return await readBack();
+
+    // updated=0：余额本来就是 0（账本偏低），或文档不存在
+    const prev = await readQuotaDoc(db, collName, openid); // 读失败会抛，绝不静默
+    if (!prev) {
+      // 平台已扣而账本缺失：建档 quota=0、totalSpent=1（宁虚低方向）
+      try {
+        await coll.add({ data: { _id: openid, quota: 0, totalEarned: 0, totalSpent: 1, updatedAt: at } });
+        return { quota: 0, totalEarned: 0, totalSpent: 1 };
+      } catch (e) {
+        if (!isDupKeyError(e)) throw e;
+        // 并发首建冲突 → 退回 inc 累计
+      }
+    }
+    // 余额 0：扣不到负，只记累计推送数（quota 保持 0）
+    await coll.doc(openid).update({ data: { totalSpent: _.inc(1), updatedAt: at } });
+    return await readBack();
+  }
+
+  if (type === 'zero') {
+    // 归零校准：不依赖旧值，直接把余额写 0 并留时间戳
+    const r = await coll.doc(openid).update({
+      data: { quota: 0, correctedAt: at, updatedAt: at }
+    });
+    if (r && r.stats && r.stats.updated > 0) return await readBack();
+
+    // 文档不存在（doc().update() 对缺失文档是静默空操作，坑 #6）→ add 首档
+    try {
+      await coll.add({
+        data: { _id: openid, quota: 0, totalEarned: 0, totalSpent: 0, correctedAt: at, updatedAt: at }
+      });
+    } catch (e) {
+      if (!isDupKeyError(e)) throw e;
+      // 并发首建冲突 → 补一次归零（幂等）
+      await coll.doc(openid).update({ data: { quota: 0, correctedAt: at, updatedAt: at } });
+    }
+    return await readBack();
+  }
+
+  throw new Error(`未知账本事件类型: ${type}`);
 }
 
-module.exports = { applyLedgerEvent, readQuotaDoc, commitEvent };
+module.exports = { applyLedgerEvent, readQuotaDoc, commitEvent, isDupKeyError };

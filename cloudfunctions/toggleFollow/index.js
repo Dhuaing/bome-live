@@ -11,6 +11,10 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const COLLECTION = 'follows'
+/** 巡检状态档集合（取关时顺带清理，防 watchState 只增不减） */
+const STATE_COLLECTION = 'watchState'
+/** 每用户关注上限：关注数无界会让巡检轮按页扫表直至超时全停 */
+const MAX_FOLLOWS_PER_USER = 50
 
 /** 兼容 HTTP 网关调用（参数在 event.body / queryStringParameters） */
 const { parseParams } = require('./_shared/parseParams')
@@ -35,9 +39,15 @@ async function findExisting(coll, openid, uniqueId) {
   return (res.data && res.data[0]) || null
 }
 
-/** 关注：新增或更新记录 */
+/** 关注：新增或更新记录；已达每用户上限返回 false（新增时才查计数） */
 async function follow(coll, openid, uniqueId, params) {
   const found = await findExisting(coll, openid, uniqueId)
+  if (!found) {
+    // 上限保护：只对「新增」计数。不设限的话一个用户囤几百条关注，
+    // watchLive 巡检轮就得逐页扫完全表——每轮耗时被拖到超时，全体停摆
+    const res = await coll.where({ _openid: openid }).count()
+    if (((res && res.total) || 0) >= MAX_FOLLOWS_PER_USER) return false
+  }
   const record = buildFollowRecord({ ...params, uniqueId }, found)
 
   if (found) {
@@ -65,12 +75,21 @@ async function follow(coll, openid, uniqueId, params) {
     if (!isConflict) throw e
     await coll.doc(docId).update({ data: record })
   }
+  return true
 }
 
-/** 取关：幂等，不存在也算成功 */
+/** 取关：幂等，不存在也算成功；顺带清 watchState 巡检档 */
 async function unfollow(coll, openid, uniqueId) {
   const found = await findExisting(coll, openid, uniqueId)
   if (found) await coll.doc(found._id).remove()
+  // watchState 的 `${openid}__${uniqueId}` 档在 follows 记录删除后不再被
+  // 巡检引用，但会永久留在集合里（watchState 此前只增不减）。取关是
+  // 清理它的自然时机。失败不影响取关主流程（下次取关/同主播重关会再试）。
+  try {
+    await db.collection(STATE_COLLECTION).doc(`${openid}__${uniqueId}`).remove()
+  } catch (e) {
+    console.warn('[toggleFollow] 清理 watchState 档失败（不影响取关）:', e.message)
+  }
 }
 
 exports.main = async (event) => {
@@ -95,7 +114,10 @@ exports.main = async (event) => {
     const coll = db.collection(COLLECTION)
 
     if (action === 'follow') {
-      await follow(coll, OPENID, uniqueId, params)
+      const ok = await follow(coll, OPENID, uniqueId, params)
+      if (!ok) {
+        return { code: -1, message: `每个用户最多关注 ${MAX_FOLLOWS_PER_USER} 个主播`, data: null }
+      }
       return { code: 0, message: '关注成功', data: { followed: true } }
     }
 

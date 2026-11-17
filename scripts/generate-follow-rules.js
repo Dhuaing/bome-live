@@ -37,6 +37,7 @@ function buildBody() {
     roomUrlPrefix: uniqueId.roomUrlPrefix,
     maxName: limits.name,
     maxUrl: limits.url,
+    maxUniqueId: limits.uniqueId,
     urlPattern: url.pattern,
     defaults: record.defaults,
     actions,
@@ -61,6 +62,13 @@ const MAX_NAME = ${consts.maxName};
 
 /** URL 最大长度 */
 const MAX_URL = ${consts.maxUrl};
+
+/**
+ * 抖音号最大长度。
+ * 无上限的超长输入会让 watchState 文档 ID（openid__uniqueId）超长失写、
+ * 状态静默丢失 → 主播永远静默不提醒；64 覆盖真实抖音号（最长 ~32）。
+ */
+const MAX_UNIQUE_ID = ${consts.maxUniqueId};
 
 /** 只接受 http(s) */
 const SAFE_URL = /${consts.urlPattern}/i;
@@ -115,10 +123,10 @@ function normalizeUniqueId(input) {
     .trim();
 }
 
-/** 判断是否是合法的抖音号 */
+/** 判断是否是合法的抖音号（长度上限一并把关） */
 function isValidUniqueId(uniqueId) {
   const id = String(uniqueId == null ? '' : uniqueId).trim();
-  return id.length > 0 && VALID_UNIQUE_ID.test(id);
+  return id.length > 0 && id.length <= MAX_UNIQUE_ID && VALID_UNIQUE_ID.test(id);
 }
 
 /** 由抖音号拼出直播间地址 */
@@ -226,6 +234,7 @@ function genTs() {
     .replace(/^const VALID_UNIQUE_ID/m, 'export const VALID_UNIQUE_ID')
     .replace(/^const MAX_NAME/m, 'export const MAX_NAME')
     .replace(/^const MAX_URL/m, 'export const MAX_URL')
+    .replace(/^const MAX_UNIQUE_ID/m, 'export const MAX_UNIQUE_ID')
     .replace(/^const ROOM_URL_PREFIX/m, 'export const ROOM_URL_PREFIX')
     .replace(/^const ACTIONS/m, 'export const ACTIONS');
 
@@ -239,6 +248,7 @@ function genCjs() {
     'ROOM_URL_PREFIX',
     'MAX_NAME',
     'MAX_URL',
+    'MAX_UNIQUE_ID',
     'ACTIONS',
     'RECORD_DEFAULTS',
     'cleanText',

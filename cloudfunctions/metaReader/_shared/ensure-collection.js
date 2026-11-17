@@ -18,23 +18,27 @@ const ensured = new Set()
 
 /**
  * 幂等创建集合；不存在则建，已存在当作成功。
- * 创建失败不抛出——集合缺失的真实错误会在后续业务调用里暴露，
- * 这里只负责「大概率能建」的兜底。
+ * 只有「新建成功」或「确认已存在」才记入进程缓存——创建失败不入缓存，
+ * 下次调用自动重试自愈（否则热实例整个生命周期都会跳过 ensure，
+ * 集合缺失的真实错误会在后续业务调用里反复暴露）。
  */
 async function ensureCollection(db, name) {
   if (ensured.has(name)) return true
   try {
     await db.createCollection(name)
     console.log(`[ensureCollection] 已创建集合 ${name}`)
+    ensured.add(name)
+    return true
   } catch (e) {
     const msg = (e && (e.errCode !== undefined ? String(e.errCode) : e.message)) || String(e)
     // 已存在（通常报 -501001 RESOURCE_NOT_FOUND 或具体错误文本）静默视为成功
-    if (!/(-501001|already exists|已存在|existed)/i.test(msg)) {
-      console.warn(`[ensureCollection] ${name} 创建异常: ${msg}`)
+    if (/(-501001|already exists|已存在|existed)/i.test(msg)) {
+      ensured.add(name)
+      return true
     }
+    console.warn(`[ensureCollection] ${name} 创建异常（不入缓存，下次重试）: ${msg}`)
+    return false
   }
-  ensured.add(name)
-  return true
 }
 
 module.exports = { ensureCollection }

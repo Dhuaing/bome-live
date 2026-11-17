@@ -41,6 +41,14 @@ test('isValidUniqueId：合法与非法', () => {
   assert.ok(!isValidUniqueId('bad/slash'));
 });
 
+test('isValidUniqueId：长度上限 64（超长输入会让 watchState 文档 ID 失写，坑位加固）', () => {
+  assert.ok(isValidUniqueId('a'.repeat(64)));
+  assert.ok(!isValidUniqueId('a'.repeat(65)));
+  // 前后空白会先 trim 再判长，边界语义保持一致
+  assert.ok(isValidUniqueId(`  ${'a'.repeat(64)}  `));
+  assert.ok(!isValidUniqueId(`  ${'a'.repeat(65)}  `));
+});
+
 test('buildRoomUrl：由抖音号拼地址', () => {
   assert.strictEqual(buildRoomUrl('123'), 'https://live.douyin.com/123');
   assert.strictEqual(buildRoomUrl(''), '');

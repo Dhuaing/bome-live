@@ -74,3 +74,169 @@ test('浮点余额截断为整数（额度只有整数条）', () => {
   assert.strictEqual(next.quota, 1); // 入口先 floor(2.5)=2，再扣 1
   assert.strictEqual(next.totalEarned, 2);
 });
+
+// ─────────────────────────────────────────────────────────────
+// commitEvent 原子写路径（fake db，钉死 2026-11-17 加固后的语义：
+// 数据库端原子 inc / 条件扣减 / 不存在与读失败严格区分）
+// ─────────────────────────────────────────────────────────────
+
+const { commitEvent } = require('../cloudfunctions/_shared/quota-ledger');
+
+/** 最小 fake 云数据库：只实现 commitEvent 用到的 doc/add/where/inc/gt 语义 */
+function makeDb(seed = {}) {
+  const store = new Map(); // `${coll}/${id}` -> doc
+  for (const [coll, docs] of Object.entries(seed)) {
+    for (const [id, doc] of Object.entries(docs)) store.set(`${coll}/${id}`, { ...doc });
+  }
+  const command = {
+    inc: (d) => ({ __op: 'inc', d }),
+    gt: (d) => ({ __op: 'gt', d }),
+    exists: () => ({ __op: 'exists' })
+  };
+
+  function applyUpdate(doc, data) {
+    for (const [k, v] of Object.entries(data)) {
+      if (v && typeof v === 'object' && v.__op === 'inc') {
+        doc[k] = (Number(doc[k]) || 0) + v.d;
+      } else {
+        doc[k] = v;
+      }
+    }
+  }
+
+  function matchCond(doc, cond) {
+    for (const [field, want] of Object.entries(cond)) {
+      if (want && typeof want === 'object' && want.__op === 'gt') {
+        if (!((Number(doc[field]) || 0) > want.d)) return false;
+      } else if (doc[field] !== want) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function collection(name) {
+    const key = (id) => `${name}/${id}`;
+    // 按名缓存 coll：同一集合多次 collection() 拿同一对象（测试需在
+    // 同一实例上覆写方法来模拟读失败）
+    cache[name] = cache[name] || { _docs: {} };
+    const entry = cache[name];
+    if (!entry.add) {
+      entry.add = async ({ data }) => {
+        if (store.has(key(data._id))) {
+          const e = new Error('document.add:fail document already exists');
+          e.errMsg = e.message;
+          throw e;
+        }
+        store.set(key(data._id), { ...data });
+        return { _id: data._id };
+      };
+      entry.doc = (id) => {
+        entry._docs[id] = entry._docs[id] || {
+          get: async () => {
+            const doc = store.get(key(id));
+            if (!doc) {
+              const e = new Error('document.get:fail document not exists');
+              e.errMsg = e.message;
+              throw e;
+            }
+            return { data: { ...doc } };
+          },
+          update: async ({ data }) => {
+            const doc = store.get(key(id));
+            if (!doc) return { stats: { updated: 0 } }; // 坑 #6：缺失文档静默空操作
+            applyUpdate(doc, data);
+            return { stats: { updated: 1 } };
+          }
+        };
+        return entry._docs[id];
+      };
+      entry.where = (cond) => ({
+        update: async ({ data }) => {
+          let updated = 0;
+          for (const [k, doc] of store) {
+            if (!k.startsWith(`${name}/`)) continue;
+            if (!matchCond(doc, cond)) continue;
+            applyUpdate(doc, data);
+            updated += 1;
+          }
+          return { stats: { updated } };
+        }
+      });
+    }
+    return entry;
+  }
+
+  const cache = {};
+  return { collection, command, store };
+}
+
+test('commitEvent spend：条件原子扣减，余额 2 扣到 1', async () => {
+  const db = makeDb({ subs: { u1: { _id: 'u1', quota: 2, totalEarned: 5, totalSpent: 3 } } });
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'spend' });
+  assert.strictEqual(next.quota, 1);
+  assert.strictEqual(next.totalSpent, 4);
+  assert.strictEqual(next.totalEarned, 5);
+});
+
+test('commitEvent spend：余额 0 扣不到负，只记累计（宁虚低）', async () => {
+  const db = makeDb({ subs: { u1: { _id: 'u1', quota: 0, totalEarned: 5, totalSpent: 5 } } });
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'spend' });
+  assert.strictEqual(next.quota, 0);
+  assert.strictEqual(next.totalSpent, 6);
+});
+
+test('commitEvent spend：文档不存在 → 建档 quota 0 / totalSpent 1', async () => {
+  const db = makeDb();
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'spend' });
+  assert.deepStrictEqual({ quota: next.quota, totalEarned: next.totalEarned, totalSpent: next.totalSpent }, {
+    quota: 0, totalEarned: 0, totalSpent: 1
+  });
+});
+
+test('commitEvent earn：全新账本 add 首档（1/1/0）', async () => {
+  const db = makeDb();
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'earn' });
+  assert.deepStrictEqual({ quota: next.quota, totalEarned: next.totalEarned, totalSpent: next.totalSpent }, {
+    quota: 1, totalEarned: 1, totalSpent: 0
+  });
+});
+
+test('commitEvent earn：已存在 → 原子 inc 不覆盖', async () => {
+  const db = makeDb({ subs: { u1: { _id: 'u1', quota: 3, totalEarned: 3, totalSpent: 1 } } });
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'earn' });
+  assert.strictEqual(next.quota, 4);
+  assert.strictEqual(next.totalEarned, 4);
+  assert.strictEqual(next.totalSpent, 1);
+});
+
+test('commitEvent zero：已存在 → 余额归零并留校准时间戳', async () => {
+  const db = makeDb({ subs: { u1: { _id: 'u1', quota: 7, totalEarned: 7, totalSpent: 0 } } });
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'zero', at: 1234 });
+  assert.strictEqual(next.quota, 0);
+  assert.strictEqual(next.correctedAt, 1234);
+  assert.strictEqual(next.totalSpent, 0);
+});
+
+test('commitEvent zero：文档不存在 → 建档全 0', async () => {
+  const db = makeDb();
+  const next = await commitEvent(db, 'subs', 'u1', { type: 'zero', at: 1234 });
+  assert.strictEqual(next.quota, 0);
+  assert.strictEqual(next.correctedAt, 1234);
+});
+
+test('commitEvent：读失败（非「不存在」）必须抛错，绝不静默用空账本顶替', async () => {
+  const db = makeDb();
+  // 模拟瞬时网络故障：get 抛非 not-exists 错误
+  db.collection('subs').doc('u1').get = async () => {
+    const e = new Error('network timeout');
+    e.errMsg = 'network timeout';
+    throw e;
+  };
+  await assert.rejects(() => commitEvent(db, 'subs', 'u1', { type: 'spend' }), /network timeout/);
+});
+
+test('commitEvent：未知事件类型抛错（不再静默不动账本）', async () => {
+  const db = makeDb({ subs: { u1: { _id: 'u1', quota: 1, totalEarned: 1, totalSpent: 0 } } });
+  await assert.rejects(() => commitEvent(db, 'subs', 'u1', { type: 'mystery' }), /未知账本事件/);
+});

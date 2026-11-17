@@ -17,6 +17,13 @@ const MAX_NAME = 64;
 /** URL 最大长度 */
 const MAX_URL = 512;
 
+/**
+ * 抖音号最大长度。
+ * 无上限的超长输入会让 watchState 文档 ID（openid__uniqueId）超长失写、
+ * 状态静默丢失 → 主播永远静默不提醒；64 覆盖真实抖音号（最长 ~32）。
+ */
+const MAX_UNIQUE_ID = 64;
+
 /** 只接受 http(s) */
 const SAFE_URL = /^https?:\/\//i;
 
@@ -75,10 +82,10 @@ function normalizeUniqueId(input) {
     .trim();
 }
 
-/** 判断是否是合法的抖音号 */
+/** 判断是否是合法的抖音号（长度上限一并把关） */
 function isValidUniqueId(uniqueId) {
   const id = String(uniqueId == null ? '' : uniqueId).trim();
-  return id.length > 0 && VALID_UNIQUE_ID.test(id);
+  return id.length > 0 && id.length <= MAX_UNIQUE_ID && VALID_UNIQUE_ID.test(id);
 }
 
 /** 由抖音号拼出直播间地址 */
@@ -140,6 +147,7 @@ module.exports = {
   ROOM_URL_PREFIX: ROOM_URL_PREFIX,
   MAX_NAME: MAX_NAME,
   MAX_URL: MAX_URL,
+  MAX_UNIQUE_ID: MAX_UNIQUE_ID,
   ACTIONS: ACTIONS,
   RECORD_DEFAULTS: RECORD_DEFAULTS,
   cleanText: cleanText,

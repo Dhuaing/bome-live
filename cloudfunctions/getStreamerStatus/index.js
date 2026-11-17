@@ -40,34 +40,58 @@ function decompress(res) {
   return res
 }
 
+/** 响应体大小上限：抖音页面正常几百 KB，超限一律视为异常响应（防 OOM） */
+const MAX_BODY_BYTES = 8 * 1024 * 1024
+
+/** 重定向次数上限：正常 1-2 跳，超限视为异常（防重定向环烧调用时长） */
+const MAX_REDIRECTS = 5
+
 /** 把响应流读完，resolve 出 { statusCode, body, headers, setCookies } */
 function readResponse(res) {
   return new Promise((resolve, reject) => {
     const stream = decompress(res)
     let data = ''
+    let bytes = 0
+    let aborted = false
     stream.on('data', (chunk) => {
+      if (aborted) return
+      bytes += chunk.length
+      if (bytes > MAX_BODY_BYTES) {
+        aborted = true
+        stream.destroy()
+        reject(new Error(`响应体超过 ${MAX_BODY_BYTES} 字节上限，视为异常响应`))
+        return
+      }
       data += chunk
     })
-    stream.on('end', () =>
-      resolve({
-        statusCode: res.statusCode,
-        body: data,
-        headers: res.headers,
-        setCookies: res.headers['set-cookie'] || []
-      })
-    )
-    stream.on('error', reject)
+    stream.on('end', () => {
+      if (!aborted) {
+        resolve({
+          statusCode: res.statusCode,
+          body: data,
+          headers: res.headers,
+          setCookies: res.headers['set-cookie'] || []
+        })
+      }
+    })
+    stream.on('error', (e) => {
+      if (!aborted) reject(e)
+    })
   })
 }
 
-/** 重定向时合并 cookie 并递归请求 */
+/** 重定向时合并 cookie 并递归请求（带次数上限，防重定向环） */
 function followRedirect(url, options, res, headers) {
+  const count = (options._redirectCount || 0) + 1
+  if (count > MAX_REDIRECTS) {
+    return Promise.reject(new Error(`重定向超过 ${MAX_REDIRECTS} 次，视为异常`))
+  }
   const location = res.headers.location
   const redirectUrl = location.startsWith('http') ? location : new URL(url).origin + location
   const newCookies = (res.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ')
   const existing = headers['Cookie'] || ''
   const cookie = existing ? `${existing}; ${newCookies}` : newCookies
-  return httpRequest(redirectUrl, { ...options, headers: { ...headers, Cookie: cookie } })
+  return httpRequest(redirectUrl, { ...options, _redirectCount: count, headers: { ...headers, Cookie: cookie } })
 }
 
 /** 是否应当跟随重定向 */
@@ -141,10 +165,12 @@ function extractEscapedObject(html, marker) {
           const jsonText = JSON.parse('"' + raw + '"')
           return JSON.parse(jsonText)
         } catch (e) {
-          // 兜底：手工反转义
+          // 兜底：手工反转义。
+          // 顺序必须先 `\\\\` 后 `\\"`：反着来，`\\\"`（目标文本「反斜杠+引号」）
+          // 里的 `\\"` 会先被当成引号终结符吃掉，兜底分支几乎必失败
           const text = raw
-            .replace(/\\"/g, '"')
             .replace(/\\\\/g, '\\')
+            .replace(/\\"/g, '"')
             .replace(/\\\//g, '/')
             .replace(/\\u0026/g, '&')
             .replace(/\\u003c/g, '<')
@@ -262,7 +288,9 @@ exports.main = async (event) => {
       if (!streamerId) return { code: -1, message: '缺少 streamerId 或 uniqueId', data: null }
       const conf = STREAMER_MAP[streamerId]
       if (!conf) {
-        return { code: 0, message: 'success', data: { streamerId, status: 'offline', source: 'none' } }
+        // 未知 streamerId 按业务错误返回：伪造 status:'offline' + code:0 会让
+        // 调用方把「查无此人」当「真实未开播」，违反「失败不伪造数据」原则
+        return { code: -1, message: `未知的 streamerId: ${streamerId}`, data: null }
       }
       uniqueId = conf.uniqueId
       fallbackName = conf.name

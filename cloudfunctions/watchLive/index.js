@@ -35,6 +35,10 @@ const PAGE_SIZE = 100
 // - METRICS：最近一轮巡检的摘要与耗时，运行时调优的观测面
 const PACING_DOC = 'meta__pacing'
 const METRICS_DOC = 'meta__metrics'
+/** 轮级互斥锁：同一时刻只允许一轮巡检在跑（guardian healWatch 补调与定时轮并发时防双推送双扣额度） */
+const LOCK_DOC = 'meta__lock'
+/** 轮锁自动过期：持锁轮被杀（实例回收/超时）后，最多这么久就有下一轮能接手 */
+const LOCK_MS = 5 * 60 * 1000
 
 // 新环境兜底：集合缺失时自建（管理端 SDK），部署即可用
 const { ensureCollection } = require('./_shared/ensure-collection')
@@ -124,6 +128,77 @@ async function removeStateDoc(docId) {
     await db.collection(STATE_COLLECTION).doc(docId).remove()
   } catch (e) {
     // ignore
+  }
+}
+
+// ────────────────────────── 轮级互斥锁 ──────────────────────────
+
+/**
+ * 抢占轮锁（CAS，并发安全）。
+ *
+ * 为什么不用「条件更新 lockUntil<now」一把梭：两个并发实例都能看到
+ * 锁已过期、都写入新过期时间、都拿到 updated=1——条件更新做不了
+ * compare-and-swap。这里把**旧值**放进更新条件：写是原子的，后写者
+ * 的条件对着已被先写者改过的文档求值必然失配（updated=0）。
+ *
+ * 无文档时用 add 占位（自定义 _id 冲突即有人抢先）。
+ * 三次尝试都失败 = 确有他轮持锁，直接放弃本轮。
+ */
+async function acquireRoundLock(now) {
+  const coll = db.collection(STATE_COLLECTION)
+  const _ = db.command
+  const token = `${now.toString(36)}x${Math.floor(Math.random() * 1e9).toString(36)}`
+  const lockUntil = now + LOCK_MS
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let prev = null
+    try {
+      const got = await coll.doc(LOCK_DOC).get()
+      prev = got && got.data && Object.keys(got.data).length ? got.data : null
+    } catch (e) {
+      prev = null // 不存在
+    }
+
+    if (prev && Number(prev.lockUntil) > now) {
+      return { ok: false } // 他人持锁中
+    }
+
+    if (!prev) {
+      try {
+        await coll.add({ data: { _id: LOCK_DOC, lockUntil, lockToken: token, lockedAt: now } })
+        return { ok: true, token }
+      } catch (e) {
+        continue // 已被并发抢建，重读再判
+      }
+    }
+
+    // 已过期 → CAS 抢占：条件带旧值（字段缺失时按「无该字段」匹配）
+    const cond = prev.lockUntil === undefined || prev.lockUntil === null
+      ? { lockUntil: _.exists(false) }
+      : { lockUntil: Number(prev.lockUntil) || 0 }
+    try {
+      const r = await coll.where({ _id: LOCK_DOC, ...cond })
+        .update({ data: { lockUntil, lockToken: token, lockedAt: now } })
+      if (r && r.stats && r.stats.updated > 0) return { ok: true, token }
+    } catch (e) {
+      // 条件更新失败按持锁失败处理，不中断巡检主流程
+    }
+  }
+  return { ok: false }
+}
+
+/**
+ * 释放轮锁（条件带 token：只释放自己还持有的锁）。
+ * 轮被杀/超过 LOCK_MS 后锁自动过期，他轮可接手——过期后本函数的
+ * 释放因 token 已被覆盖而自然空操作，不会误放他人刚抢到的锁。
+ */
+async function releaseRoundLock(token) {
+  try {
+    await db.collection(STATE_COLLECTION)
+      .where({ _id: LOCK_DOC, lockToken: token })
+      .update({ data: { lockUntil: 0, lockToken: '', releasedAt: Date.now() } })
+  } catch (e) {
+    console.warn('[watchLive] 释放轮锁失败（将由 LOCK_MS 过期兜底）:', e.message)
   }
 }
 
@@ -256,12 +331,27 @@ async function handleStreamSuccess(uniqueId, subscribers, info, config) {
     const docId = `${openid}__${uniqueId}`
     const prev = await getStateDoc(docId)
     const { next, notify } = evaluate(prev, info)
-    await putStateDoc(docId, { openid, uniqueId, ...next })
 
-    if (!notify) continue
     const page = (config.page || '').includes('{uniqueId}')
       ? (config.page || '').replace('{uniqueId}', uniqueId)
       : config.page || 'pages/home/index'
+
+    if (!notify) {
+      // 不推送：无副作用，直接落状态
+      await putStateDoc(docId, { openid, uniqueId, ...next })
+      continue
+    }
+
+    // 要推送：改为「先推送、按结果落状态」的写时序。
+    // 旧时序（先写状态再推）的坑：实例在写状态后、推送前被杀 → 状态已是
+    // 「本场次已推」，下轮不再判推 → 推送永久丢失（丢的是用户攒的额度）。
+    // 新时序按推送结果分档：
+    // - ok            → 写 next（lastPushAt 锚点由 evaluate 带上，合并窗靠它）
+    // - 43101（没额度）→ 归零账本 + 写 next：锚点保留防掉线重开时的重试风暴
+    // - CONFIG/200014/47003 → 写 next + break：配置/参数问题对所有人都会失败，
+    //   继续刷只会烧调用；落 next 防止配置修复后同轮补推刷量
+    // - 其他瞬时失败  → 不写状态：下轮按旧 prev 重判自动重试（at-least-once，
+    //   宁可重复判定也不丢推送）
     const r = await sendSubs(
       openid,
       config.templateId,
@@ -272,14 +362,17 @@ async function handleStreamSuccess(uniqueId, subscribers, info, config) {
     if (r.ok) {
       pushed += 1
       await recordQuotaEvent(openid, 'spend')
-    } else if (r.errCode === 'CONFIG' || r.errCode === 200014) {
-      console.error(`[watchLive] 推送配置问题(${r.errCode})，后续用户跳过以防刷量`)
-      break
+      await putStateDoc(docId, { openid, uniqueId, ...next })
     } else if (r.errCode === 43101) {
       // 平台确认没有额度：账本归零校准（防账本虚高）
       await recordQuotaEvent(openid, 'zero')
+      await putStateDoc(docId, { openid, uniqueId, ...next })
+    } else if (r.errCode === 'CONFIG' || r.errCode === 200014 || r.errCode === 47003) {
+      console.error(`[watchLive] 推送配置问题(${r.errCode})，落状态并跳过本主播后续用户以防刷量`)
+      await putStateDoc(docId, { openid, uniqueId, ...next })
+      break
     } else {
-      console.warn(`[watchLive] 推送失败 openid=${openid.slice(0, 6)}… err=${r.errCode} ${r.errMsg}`)
+      console.warn(`[watchLive] 推送失败 openid=${openid.slice(0, 6)}… err=${r.errCode} ${r.errMsg}（状态未落，下轮重试）`)
     }
   }
   return pushed
@@ -293,117 +386,32 @@ exports.main = async () => {
     await ensureCollection(db, FOLLOW_COLLECTION)
     await ensureCollection(db, STATE_COLLECTION)
 
-    // ── 节奏门：冷却期内只刷新心跳不巡检，省 QPS ──
-    // 注意：即使跳轮也必须写 PACING 文档——它是「定时器是否还活着」的心跳证据
-    let pacing = null
+    // ── 轮锁：同一时刻只允许一轮巡检在跑 ──
+    // guardian healWatch 补调与每分钟定时轮并发时，无锁会双巡检双推送
+    // （双扣用户额度）。拿不到锁直接返回：持锁轮负责本轮巡检。
+    // 持锁轮被硬杀时锁由 LOCK_MS 过期兜底，不会永久卡死。
+    const lock = await acquireRoundLock(roundStartedAt)
+    if (!lock.ok) {
+      console.log('[watchLive] 已有另一轮持有轮锁，本轮跳过')
+      return { code: 0, message: 'lock-skip', pushed: 0 }
+    }
+
+    // 无论本轮怎么退出（正常/异常）都释放锁；实例被硬杀时由 LOCK_MS 过期兜底
     try {
-      pacing = await getStateDoc(PACING_DOC)
-    } catch (e) {
-      pacing = null
+      return await runRound(config, roundStartedAt)
+    } finally {
+      await releaseRoundLock(lock.token)
     }
-    if (pacing && Number(pacing.waitUntil) > roundStartedAt) {
-      await putStateDoc(PACING_DOC, {
-        lastRoundAt: roundStartedAt,
-        waitUntil: pacing.waitUntil,
-        mode: 'cooldown'
-      })
-      console.log(`[watchLive] 冷却期至 ${new Date(Number(pacing.waitUntil)).toISOString()}，本轮跳过`)
-      return { code: 0, message: 'pacing-skip', pushed: 0 }
-    }
-
-    const follows = await listAllFollows()
-    if (follows.length === 0) {
-      // 空名单也进入冷却，空转每分钟查询集合没意义
-      const cooldownMs = decideCooldownMinutes({ anyLiving: false, anyFailed: false }, config.pacing) * 60 * 1000
-      await putStateDoc(PACING_DOC, {
-        waitUntil: roundStartedAt + cooldownMs,
-        lastRoundAt: roundStartedAt,
-        mode: 'idle-empty'
-      })
-      console.log('[watchLive] 关注列表为空，本轮跳过')
-      return { code: 0, message: 'empty', pushed: 0 }
-    }
-
-    // 同一主播多个用户关注：查询一次、状态各判各的。
-    // 无主记录（_openid 缺失，坑 #9 同类）跳过——不生成 undefined__* 状态档，
-    // 但计数上报（meta__orphans），系统自己把坏数据点亮而不是埋着
-    const orphans = []
-    const byStreamer = new Map()
-    for (const f of follows) {
-      const id = f && f.uniqueId
-      if (!id) continue
-      if (!f._openid) {
-        orphans.push(id)
-        continue
-      }
-      if (!byStreamer.has(id)) byStreamer.set(id, [])
-      byStreamer.get(id).push(f._openid)
-    }
-    if (orphans.length > 0) {
-      console.error(`[watchLive] 发现 ${orphans.length} 条无主关注（_openid 缺失，跳过巡检订阅）: ${orphans.join(', ')}`)
-      await putStateDoc('meta__orphans', {
-        count: orphans.length,
-        uniqueIds: orphans,
-        lastSeenAt: Date.now()
-      })
-    }
-
-    let pushed = 0
-    let failedStreams = 0
-    let livingStreams = 0
-    for (const [uniqueId, openids] of byStreamer) {
-      const q = await queryStatus(uniqueId)
-      if (!q.ok) {
-        failedStreams += 1
-        await handleStreamFailure(uniqueId, openids, q.error, config)
-        continue
-      }
-      if (q.info && q.info.status === 'living') livingStreams += 1
-      pushed += await handleStreamSuccess(uniqueId, openids, q.info, config)
-    }
-
-    console.log(
-      `[watchLive] 本轮完成：主播 ${byStreamer.size} 个 / 用户记录 ${follows.length} 条，推送 ${pushed} 条`
-    )
-
-    // ── 自我调优：按本轮结果写下一轮冷却 + 落本轮指标 ──
-    // 连败轮数计数：任何一轮没有失败就清零；持续失败时指数退避由 pacing 纯函数处理
-    const prevStreak = Number(pacing && pacing.failStreak) > 0 ? Number(pacing.failStreak) : 0
-    const failStreak = failedStreams > 0 ? prevStreak + 1 : 0
-    const cooldownMinutes = decideCooldownMinutes(
-      { anyLiving: livingStreams > 0, anyFailed: failedStreams > 0, failStreak },
-      config.pacing
-    )
-    const mode = failedStreams > 0 ? 'fail-backoff' : (livingStreams > 0 ? 'active' : 'idle')
-    await putStateDoc(PACING_DOC, {
-      waitUntil: Date.now() + cooldownMinutes * 60 * 1000,
-      lastRoundAt: Date.now(),
-      mode,
-      failStreak
-    })
-    await putStateDoc(METRICS_DOC, {
-      startedAt: roundStartedAt,
-      durationMs: Date.now() - roundStartedAt,
-      streamers: byStreamer.size,
-      records: follows.length,
-      pushed,
-      failedStreams,
-      livingStreams,
-      // 无主关注自检（坑 #9 同类）：>0 时需要人工介入重绑/清理
-      orphans: orphans.length,
-      mode,
-      nextCooldownMinutes: cooldownMinutes
-    })
-
-    return { code: 0, message: 'success', pushed, mode, nextCooldownMinutes: cooldownMinutes, orphans: orphans.length }
   } catch (err) {
     console.error('[watchLive] 本轮异常:', err)
-    // 定时触发场景下抛错会记录在云函数日志里，可被开发者工具看到
-    // 异常轮也退避，避免抖音侧故障时每分钟白烧触发器调用
+    // 定时触发场景下抛错会记录在云函数日志里，可被开发者工具看到。
+    // 异常轮也退避，避免抖音侧故障时每分钟白烧触发器调用。
+    // （failStreak 用现读值：本轮内 PACING 可能已被更新过。
+    //   历史 bug：pacing 曾声明在 try 块内，此处越界引用 → ReferenceError
+    //   被本 try 静默吞掉，「异常轮退避」整段是死代码）
     try {
-      // 连败轮数沿用顺延（异常轮计 +1，冷却计算沿用指数退避）
-      const prevStreak = Number(pacing && pacing.failStreak) > 0 ? Number(pacing.failStreak) : 0
-      const failStreak = prevStreak + 1
+      const prevPacing = await getStateDoc(PACING_DOC)
+      const failStreak = (Number(prevPacing && prevPacing.failStreak) > 0 ? Number(prevPacing.failStreak) : 0) + 1
       const cooldownMs = decideCooldownMinutes({ anyLiving: false, anyFailed: true, failStreak }, config.pacing) * 60 * 1000
       await putStateDoc(PACING_DOC, {
         waitUntil: Date.now() + cooldownMs,
@@ -416,4 +424,116 @@ exports.main = async () => {
     }
     return { code: -1, message: err.message || 'watchLive 异常' }
   }
+}
+
+/** 一轮巡检主体（持锁成功后才会进来）：节奏门 → 巡检 → 自我调优 */
+async function runRound(config, roundStartedAt) {
+  // ── 节奏门：冷却期内只刷新心跳不巡检，省 QPS ──
+  // 注意：即使跳轮也必须写 PACING 文档——它是「定时器是否还活着」的心跳证据
+  let pacing = null
+  try {
+    pacing = await getStateDoc(PACING_DOC)
+  } catch (e) {
+    pacing = null
+  }
+  if (pacing && Number(pacing.waitUntil) > roundStartedAt) {
+    await putStateDoc(PACING_DOC, {
+      lastRoundAt: roundStartedAt,
+      waitUntil: pacing.waitUntil,
+      mode: 'cooldown'
+    })
+    console.log(`[watchLive] 冷却期至 ${new Date(Number(pacing.waitUntil)).toISOString()}，本轮跳过`)
+    return { code: 0, message: 'pacing-skip', pushed: 0 }
+  }
+
+  const follows = await listAllFollows()
+  if (follows.length === 0) {
+    // 空名单也进入冷却，空转每分钟查询集合没意义
+    const cooldownMs = decideCooldownMinutes({ anyLiving: false, anyFailed: false }, config.pacing) * 60 * 1000
+    await putStateDoc(PACING_DOC, {
+      waitUntil: roundStartedAt + cooldownMs,
+      lastRoundAt: roundStartedAt,
+      mode: 'idle-empty'
+    })
+    console.log('[watchLive] 关注列表为空，本轮跳过')
+    return { code: 0, message: 'empty', pushed: 0 }
+  }
+
+  // 同一主播多个用户关注：查询一次、状态各判各的。
+  // 无主记录（_openid 缺失，坑 #9 同类）跳过——不生成 undefined__* 状态档，
+  // 但计数上报（meta__orphans），系统自己把坏数据点亮而不是埋着。
+  // Set 去重：同一用户对同一主播存在重复关注记录时（历史脏数据），
+  // 只巡检/推送一次——重复推送会双扣用户额度。
+  // String() 包裹：_openid 理论上可非字符串，后续 slice/拼接统一在此归一。
+  const orphans = []
+  const byStreamer = new Map()
+  for (const f of follows) {
+    const id = f && f.uniqueId
+    if (!id) continue
+    if (!f._openid) {
+      orphans.push(id)
+      continue
+    }
+    const openid = String(f._openid)
+    if (!byStreamer.has(id)) byStreamer.set(id, new Set())
+    byStreamer.get(id).add(openid)
+  }
+  if (orphans.length > 0) {
+    console.error(`[watchLive] 发现 ${orphans.length} 条无主关注（_openid 缺失，跳过巡检订阅）: ${orphans.join(', ')}`)
+    await putStateDoc('meta__orphans', {
+      count: orphans.length,
+      uniqueIds: orphans,
+      lastSeenAt: Date.now()
+    })
+  }
+
+  let pushed = 0
+  let failedStreams = 0
+  let livingStreams = 0
+  for (const [uniqueId, openidSet] of byStreamer) {
+    const openids = Array.from(openidSet)
+    const q = await queryStatus(uniqueId)
+    if (!q.ok) {
+      failedStreams += 1
+      await handleStreamFailure(uniqueId, openids, q.error, config)
+      continue
+    }
+    if (q.info && q.info.status === 'living') livingStreams += 1
+    pushed += await handleStreamSuccess(uniqueId, openids, q.info, config)
+  }
+
+  console.log(
+    `[watchLive] 本轮完成：主播 ${byStreamer.size} 个 / 用户记录 ${follows.length} 条，推送 ${pushed} 条`
+  )
+
+  // ── 自我调优：按本轮结果写下一轮冷却 + 落本轮指标 ──
+  // 连败轮数计数：任何一轮没有失败就清零；持续失败时指数退避由 pacing 纯函数处理
+  const prevStreak = Number(pacing && pacing.failStreak) > 0 ? Number(pacing.failStreak) : 0
+  const failStreak = failedStreams > 0 ? prevStreak + 1 : 0
+  const cooldownMinutes = decideCooldownMinutes(
+    { anyLiving: livingStreams > 0, anyFailed: failedStreams > 0, failStreak },
+    config.pacing
+  )
+  const mode = failedStreams > 0 ? 'fail-backoff' : (livingStreams > 0 ? 'active' : 'idle')
+  await putStateDoc(PACING_DOC, {
+    waitUntil: Date.now() + cooldownMinutes * 60 * 1000,
+    lastRoundAt: Date.now(),
+    mode,
+    failStreak
+  })
+  await putStateDoc(METRICS_DOC, {
+    startedAt: roundStartedAt,
+    durationMs: Date.now() - roundStartedAt,
+    streamers: byStreamer.size,
+    records: follows.length,
+    pushed,
+    failedStreams,
+    livingStreams,
+    // 无主关注自检（坑 #9 同类）：>0 时需要人工介入重绑/清理
+    orphans: orphans.length,
+    mode,
+    nextCooldownMinutes: cooldownMinutes
+  })
+
+  return { code: 0, message: 'success', pushed, mode, nextCooldownMinutes: cooldownMinutes, orphans: orphans.length }
 }

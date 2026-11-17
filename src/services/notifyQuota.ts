@@ -30,10 +30,15 @@ export async function getQuota(): Promise<QuotaInfo | null> {
   }
 }
 
-/** 攒额度后回写账本（每次 accept 精确调用一次）；失败静默，不影响订阅主流程 */
-export async function earnQuota(): Promise<QuotaInfo | null> {
+/**
+ * 攒额度后回写账本（每次 accept 精确调用一次）；失败静默，不影响订阅主流程。
+ *
+ * requestId 是本次「允许」的幂等键：云端按它去重，同一 accept 的
+ * 重试/双击不会双记账（见 cloudfunctions/notifyQuota 的 subsQuotaEvents）。
+ */
+export async function earnQuota(requestId?: string): Promise<QuotaInfo | null> {
   try {
-    return await callFunction<QuotaInfo>(RPC.notifyQuota, { action: 'earn' });
+    return await callFunction<QuotaInfo>(RPC.notifyQuota, { action: 'earn', requestId });
   } catch (e) {
     console.warn('[notifyQuota] 账本 +1 失败:', e);
     return null;

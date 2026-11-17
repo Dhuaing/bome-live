@@ -92,15 +92,29 @@ export const StreamerProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       } catch (e: any) {
         console.error('[StreamerStore] toggleFollow failed:', e);
-        // 回滚
-        setFollowedIds(prevIds);
-        setFollows(prevFollows);
+        // 回滚按 id 差异恢复（函数式 setState），不用整表快照——
+        // 快照恢复会把另一个主播并发操作刚落下的乐观态一并抹掉
+        if (action === 'follow') {
+          setFollowedIds((prev) => prev.filter((x) => x !== uniqueId));
+          setFollows((prev) => prev.filter((f) => f.uniqueId !== uniqueId));
+        } else {
+          const record = prevFollows.find((f) => f.uniqueId === uniqueId);
+          if (record) {
+            setFollows((prev) =>
+              prev.some((f) => f.uniqueId === uniqueId) ? prev : [...prev, record]
+            );
+            setFollowedIds((prev) => (prev.includes(uniqueId) ? prev : [...prev, uniqueId]));
+          } else {
+            // 本地快照里找不到（如列表刚被刷新改写）：以服务端为准刷新一次
+            refreshFollows();
+          }
+        }
         Taro.showToast({ title: e?.message || '操作失败', icon: 'none' });
       } finally {
         pendingFollows.delete(uniqueId);
       }
     },
-    [followedIds, follows]
+    [followedIds, follows, refreshFollows]
   );
 
   return (

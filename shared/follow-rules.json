@@ -10,7 +10,8 @@
 
   "limits": {
     "name": 64,
-    "url": 512
+    "url": 512,
+    "uniqueId": 64
   },
 
   "url": {
