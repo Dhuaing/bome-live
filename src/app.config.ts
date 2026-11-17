@@ -8,7 +8,7 @@ export default defineAppConfig({
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#FFFFFF',
-    navigationBarTitleText: '播了么',
+    navigationBarTitleText: '开播喊我',
     navigationBarTextStyle: 'black'
   },
   tabBar: {

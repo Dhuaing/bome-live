@@ -22,11 +22,11 @@ const StreamerDetailPage: React.FC = () => {
 
   // 转发/朋友圈：公开传播通道（任何人都能把卡片转给好友；对方点开即用）
   useShareAppMessage(() => ({
-    title: `${record?.name || uniqueId} 的开播提醒 · 播了么`,
+    title: `${record?.name || uniqueId} 的开播提醒 · 开播喊我`,
     path: `/pages/streamer-detail/index?id=${uniqueId}`
   }));
   useShareTimeline(() => ({
-    title: `${record?.name || uniqueId} 的开播提醒 · 播了么`,
+    title: `${record?.name || uniqueId} 的开播提醒 · 开播喊我`,
     path: `/pages/streamer-detail/index?id=${uniqueId}`
   }));
 

@@ -1,5 +1,5 @@
 export default definePageConfig({
-  navigationBarTitleText: '播了么',
+  navigationBarTitleText: '开播喊我',
   enablePullDownRefresh: true,
   backgroundTextStyle: 'dark'
 });

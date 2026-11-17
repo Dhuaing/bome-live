@@ -16,9 +16,9 @@ const MinePage: React.FC = () => {
         break;
       case 'about':
         Taro.showModal({
-          title: '关于播了么',
+          title: '关于开播喊我',
           content:
-            '播了么 v1.0.0\n\n实时查询已关注主播的抖音开播状态。\n开播提醒由本机巡检脚本每 1 分钟检查一次，通过 nanobot 推送到微信。',
+            '开播喊我 v1.0.2\n\n实时查询已关注主播的抖音开播状态。\n开播提醒由云端定时巡检，通过微信订阅消息推送到微信。',
           showCancel: false
         });
         break;
@@ -65,7 +65,7 @@ const MinePage: React.FC = () => {
         </View>
       </View>
 
-      <View className={styles.about}>播了么 · 实时直播状态查询</View>
+      <View className={styles.about}>开播喊我 · 实时直播状态查询</View>
     </View>
   );
 };

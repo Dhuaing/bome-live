@@ -43,12 +43,12 @@ const HomePage: React.FC = () => {
   useShareAppMessage(() => ({
     title:
       featured && featured.status === 'living'
-        ? `${featured.name} 正在直播 · 播了么`
-        : '播了么——主播开播提醒，不错过每一场直播',
+        ? `${featured.name} 正在直播 · 开播喊我`
+        : '开播喊我——主播开播提醒，不错过每一场直播',
     path: '/pages/home/index'
   }));
   useShareTimeline(() => ({
-    title: '播了么——主播开播提醒，不错过每一场直播',
+    title: '开播喊我——主播开播提醒，不错过每一场直播',
     path: '/pages/home/index'
   }));
 
