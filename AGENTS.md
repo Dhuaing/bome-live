@@ -102,7 +102,7 @@ node scripts/watch-live.js --reset
 | 5 | **构建环境变量必须显式传** | 产物里模板 ID/环境 ID 为空或旧默认值 → 订阅按钮消失/连错环境 | build 前设 `TCB_ENV_ID` + `SUBS_TEMPLATE_ID`；`scripts/doctor.js` 可验 |
 | 4 | **React 子组件 effect 先于父组件执行** | `wx.cloud.init` 写在 App 的 useEffect → store 首拉报「please call wx.cloud.init first」且被吞，关注列表空白 | init 提到模块加载期；`services/cloud.ts` 有 ensureCloudInit 兜底 |
 | 3 | **`scfGetFunctionLogs` 对微信环境永远空** | 用它验证定时器是否触发→假阴性 | 查 `watchState` 心跳文档/指标文档；`tcbGetFunctionLogs`/`tcbSearchClsLog` 需开日志服务 |
-| 2 | **IDE CLI/HTTP 通道做不到云 API 配置**（触发器、超时） | CLI 路由表无这些端点 | IDE 带 `--remote-debugging-port=9223` 启动 → CDP 驱动 cloudconsolev1 webview 里的 `window.cloudApi`（小驼峰参数：functionName/namespace/timeout/region） |
+| 2 | **IDE CLI/HTTP 通道做不到云 API 配置**（触发器、超时） | CLI 路由表无这些端点；`cli cloud functions deploy` 也不会应用函数目录 `config.json` 的 `timeout` → 重部署后仍可能是默认 3s（guardian/getStreamerStatus/notifyQuota 全部中招，guardian 3s 根本调不动 watchLive） | IDE 带 `--remote-debugging-port=9223` 启动 → CDP 驱动 cloudconsolev1 webview 里的 `window.cloudApi`（小驼峰参数：functionName/namespace/timeout/region）；完整配方见「CDP 驱动 IDE」一节 |
 | 1 | **微信数据库权限模型** | 客户端查询只见自己的文档（`_openid` 过滤）；服务端 read 全量 | 巡检函数刻意不按 openid 过滤；写库方（toggleFollow）责任带 `_openid` |
 
 ## CDP 驱动 IDE（调试端口手法）
@@ -115,9 +115,27 @@ Start-Process -FilePath "C:\Program Files (x86)\Tencent\微信web开发者工具
 ```
 
 - 目标列表：`http://127.0.0.1:9223/json`
-- 求值助手：`node %TMP%\opencode\cdp-eval.js "<url子串>" "<base64表达式>"`（simulator-app-session=小程序逻辑层，wx 可用；cloudconsolev1=云控制台 webview，cloudApi 可用）
-- IDE 会闪退/被关——CLDP 失联先查进程与端口，重启即可
+- 求值助手：`node scripts/cdp-eval.js "<url子串>" "<base64表达式>"`（simulator-app-session=小程序逻辑层，wx 可用；cloudconsolev1=云控制台 webview，cloudApi 可用）
+- 云控制台 webview 平时**不存在**，要先点主窗口顶栏云图标（`i.ui-icon-cloud-develop`，约 927,17）才会出现 `CloudBase Console` target
+- IDE 会闪退/被关——CDP 失联先查进程与端口，重启即可
 - **云控制台 webview 卡死**时：`cdp-raw.js ... Page.reload` 重载后恢复
+
+### 云函数超时 / 触发器（CLI 做不到，坑 #2 的正解）
+
+```js
+// 超时：先 GetFunction 取 runtime/memorySize，再 UpdateFunctionConfiguration
+await cloudApi.scfGetFunctionInfo({ functionName:'guardian', region:'ap-shanghai', namespace: ENV })
+await cloudApi.scfUpdateFunctionInfo({ functionName:'guardian', region:'ap-shanghai', namespace: ENV, runtime:'Nodejs16.13', memorySize:256, timeout:60 })
+
+// 触发器：cron 是 7 段（秒 分 时 日 月 周 年）
+await cloudApi.scfBatchCreateTrigger({ region:'ap-shanghai', namespace: ENV, functionName:'guardian',
+  triggers:[{ triggerName:'guardian-daily-check', type:'timer', triggerDesc:'0 0 8,20 * * * *' }] })
+```
+
+- `ENV` = `bome-livedongyailongwang-d91c6e8`，region = `ap-shanghai`
+- **触发器的 name 必须与函数目录 `config.json` 里的 `triggers[].name` 一字不差**，否则云上与仓库漂移，下次「上传触发器」会建出第二个同名 cron 的定时器（重复执行）
+- 删除触发器：`cloudApi.tcbCommonServiceAPI` 走 SCF `DeleteTrigger` 会报 `Region` 参数不识别（TCB 会自己注入），实际用控制台「函数详情 → 定时触发器 → 删除」
+- 验证：控制台页面 `#/scf/manage-version?functionName=<fn>` 点「函数详情」，能看到超时时间与触发器列表；一次真实触发仍以 `meta__guardian.at` 推进为证据
 
 ## 边界与禁区（防 AI 误伤）
 

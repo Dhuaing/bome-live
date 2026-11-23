@@ -16,7 +16,16 @@
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
-const META_IDS = ['meta__guardian', 'meta__incidents', 'meta__pacing', 'meta__metrics', 'meta__orphans']
+const META_IDS = ['meta__guardian', 'meta__incidents', 'meta__pacing', 'meta__metrics', 'meta__orphans', 'meta__lock']
+
+/** 轮锁读数不需要整个文档，只留排障关心的字段（token 不外泄也无意义） */
+function presentDoc(id, data) {
+  if (!data || typeof data !== 'object') return null
+  if (id === 'meta__lock') {
+    return { lockUntil: data.lockUntil || 0, lockedAt: data.lockedAt || 0, releasedAt: data.releasedAt || 0 }
+  }
+  return data
+}
 
 /** 管理员白名单：从函数环境变量读，逗号分隔 */
 function getAdminOpenids() {
@@ -46,7 +55,7 @@ exports.main = async () => {
   for (const id of META_IDS) {
     try {
       const r = await coll.doc(id).get()
-      out[id.replace('meta__', '')] = r.data || null
+      out[id.replace('meta__', '')] = presentDoc(id, r.data)
     } catch (e) {
       // 不存在/读失败都落 null——由调用方区分「读失败」与「无数据」
       out[id.replace('meta__', '')] = null
