@@ -126,7 +126,9 @@ function fmtCloudSection(cloud) {
   if (g.at) {
     lines.push(`- guardian 最近自检：${new Date(g.at).toLocaleString('zh-CN')}，事故 ${g.incidentCount ?? 0} 条`);
   }
-  const inc = Array.isArray(d.incidents && d.incidents.list) ? d.incidents.list : [];
+  const incAll = Array.isArray(d.incidents && d.incidents.list) ? d.incidents.list : [];
+  // level==='resolved' 是已办记录（人工认领/修复后标注），不算待处理，别每天重播
+  const inc = incAll.filter((x) => x && x.level !== 'resolved');
   if (inc.length) {
     lines.push(`- 待处理事故（最近 ${inc.slice(0, 5).length} 条 / 共 ${inc.length} 条）：`);
     for (const x of inc.slice(0, 5)) {
@@ -151,6 +153,14 @@ function fmtCloudSection(cloud) {
   return lines.join('\n');
 }
 
+/** 保留上一次写入的人工段（`## 今日处置` / `## 人工处置`）——自动值班重写日志时不能把人工记录冲掉 */
+function keepManualSections(prev) {
+  if (!prev) return ''
+  const parts = prev.split(/^(?=## )/m)
+  const kept = parts.filter((s) => /^## (今日处置|人工处置)/.test(s)).map((s) => s.trimEnd())
+  return kept.length ? '\n' + kept.join('\n\n') + '\n' : ''
+}
+
 async function main() {
   const report = [`# 运维日志 ${day}`, '', `_生成于 ${now.toLocaleString('zh-CN')}（duty.js ${IS_AUTO ? '--auto' : '手动'}）_`, ''];
 
@@ -172,7 +182,13 @@ async function main() {
   const dir = path.join(ROOT, 'docs', '运维日志');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${day}.md`);
-  fs.writeFileSync(file, report.join('\n'));
+  let prev = '';
+  try {
+    prev = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    prev = ''; // 当天首跑：没有旧文件
+  }
+  fs.writeFileSync(file, report.join('\n') + keepManualSections(prev));
 
   // 4) --auto：自动提交这次的日志（避免工作区被报告茬占位）
   if (IS_AUTO) {
