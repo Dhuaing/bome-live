@@ -62,7 +62,7 @@ const MinePage: React.FC = () => {
         Taro.showModal({
           title: '关于开播喊我',
           content:
-            '开播喊我 v1.0.2\n\n实时查询已关注主播的抖音开播状态。\n开播提醒由云端定时巡检，通过微信订阅消息推送到微信。',
+            '开播喊我 v1.0.3\n\n实时查询已关注主播的抖音开播状态。\n开播提醒由云端定时巡检，通过微信订阅消息推送到微信。',
           showCancel: false
         });
         break;
