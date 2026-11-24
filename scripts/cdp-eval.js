@@ -10,13 +10,15 @@
  *       输出（value 通常为 null），找不到 target 时打印 TARGET-NOT-FOUND 退 2。
  */
 const [, , urlPart = '', exprB64 = ''] = process.argv;
+// 端口可用 CDP_PORT 覆盖（默认 9223 = 开发者工具；公众号后台等外部 Chrome 常开在 9222）
+const PORT = process.env.CDP_PORT || '9223';
 
 async function main() {
   if (!urlPart || !exprB64) {
     console.error('usage: node scripts/cdp-eval.js <URL子串> <base64表达式>');
     process.exit(2);
   }
-  const res = await fetch('http://127.0.0.1:9223/json');
+  const res = await fetch(`http://127.0.0.1:${PORT}/json`);
   const targets = await res.json();
   const t = targets.find((x) => (x.url || '').includes(urlPart));
   if (!t || !t.webSocketDebuggerUrl) {

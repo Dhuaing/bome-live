@@ -168,3 +168,13 @@ npm run typecheck && npm run lint
 - 备份是否真在跑：`cloudApi.flexdbDescribeRestoreTime({instanceId})` → `restoreTimeRanges`（可回档范围）+ `restoreTimes`（每日备份点）。
   **注意 `flexdbDescribeRestoreTime` 不接受 `region`**，`instanceId` 传 envId 会报 `InvalidParameter`
 - 控制台「概览」的待办提醒**不可全信**：曾长期显示「启用数据备份与回档」，而 API 与 数据库回档 页都证明备份每日在跑（11-16 起）。核对以 `tcbGetEnvironments` + `flexdbDescribeRestoreTime` 为准
+
+mp 后台（外部 Chrome 开 `--remote-debugging-port=9222` 时）：
+- `scripts/cdp-eval.js` 支持 `CDP_PORT` 环境变量（默认 9223 开发者工具，9222 公众号后台）
+- 提审会**复用上次表单值秒提**：同一版本提审过（含撤回）就直接带旧文案提交，不给编辑机会。
+  改描述须直开 `/wxamp/wadevelopcode/get_class?action=get_class&token=…&openid=…&user_name=…`，
+  textarea 要用 `HTMLTextAreaElement.prototype.value` 的原生 setter + `input` 事件（React 受控），
+  以字数计数器（如 `151/200`）变化为准；提交按钮是 `a.btn_primary`
+- 带错文案已提交：审核版本右侧 `∨` → 撤回审核 → 确认（未进入审核系统时撤回无副作用）。**确认按钮用 `element.click()`，CDP 坐标点击在该弹窗上不生效**
+- 「介绍」「用户隐私保护指引」的编辑入口都会跳 `wxverifyAudit`（需扫码微信验证）
+- 名称/认证结果看 `/wxamp/basicprofile/index`（名称在页首「小程序名称」）
