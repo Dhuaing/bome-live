@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
+import { reportClientError } from '@/services/reportError';
 import styles from './ErrorBoundary.module.scss';
 
 interface ErrorBoundaryProps {
@@ -30,6 +31,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: unknown, info: React.ErrorInfo) {
     console.error('[ErrorBoundary] 渲染崩溃已兜底:', error, info.componentStack);
+    // 渲染崩溃是最严重的一类（整页不可用），必须上报——否则线上白屏是黑盒
+    reportClientError('render', error);
   }
 
   /** 重试：清错误态 + 触发一次整页刷新（关注列表等数据走 store refetch） */

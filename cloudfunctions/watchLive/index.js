@@ -24,6 +24,7 @@ const { evaluate } = require('./_shared/watch-rules')
 const { buildSubsData, buildAlertData } = require('./_shared/notify-data')
 const { decideCooldownMinutes } = require('./_shared/pacing')
 const { commitEvent } = require('./_shared/quota-ledger')
+const { decideGuardianHeal } = require('./_shared/watchdog')
 
 const FOLLOW_COLLECTION = 'follows'
 const STATE_COLLECTION = 'watchState'
@@ -39,6 +40,10 @@ const METRICS_DOC = 'meta__metrics'
 const LOCK_DOC = 'meta__lock'
 /** 轮锁自动过期：持锁轮被杀（实例回收/超时）后，最多这么久就有下一轮能接手 */
 const LOCK_MS = 5 * 60 * 1000
+/** guardian 的自检快照（由 guardian 每天 08:00/20:00 写） */
+const GUARDIAN_DOC = 'meta__guardian'
+/** 看守者档案：watchLive 补跑 guardian 的记录（守护者自己挂了不会知道） */
+const WATCHDOG_DOC = 'meta__watchdog'
 
 // 新环境兜底：集合缺失时自建（管理端 SDK），部署即可用
 const { ensureCollection } = require('./_shared/ensure-collection')
@@ -200,6 +205,53 @@ async function releaseRoundLock(token) {
   } catch (e) {
     console.warn('[watchLive] 释放轮锁失败（将由 LOCK_MS 过期兜底）:', e.message)
   }
+}
+
+// ────────────────────────── 看守 guardian ──────────────────────────
+
+/**
+ * 看守 guardian：它超出 26h 没自检就补跑一次。
+ *
+ * guardian 是「每天 08:00/20:00」的定时任务，它自己挂了不会有任何感知
+ * （2026-11-05 触发器丢失，18 天无人发现，期间零告警）。watchLive 每分钟
+ * 都在跑，是系统里唯一持续活着的进程，由它顺手看守最省事。
+ *
+ * 递归防护：guardian 发现心跳停摆会反向补跑 watchLive，嵌套那一轮必须被
+ * 拦住。做法是**先写 lastHealAt 再调用**——嵌套轮读到刚写的时间戳会判成
+ * cooldown（decideGuardianHeal 见 _shared/watchdog.js）。
+ */
+async function watchGuardian(now) {
+  const [g, w] = await Promise.all([getStateDoc(GUARDIAN_DOC), getStateDoc(WATCHDOG_DOC)])
+  const d = decideGuardianHeal({
+    now,
+    guardianAt: g && g.at,
+    lastHealAt: w && w.lastHealAt
+  })
+  if (!d.heal) return d
+
+  console.error(`[watchLive] guardian 停摆判定=${d.reason}，补跑一次 guardian`)
+  // 先落「补跑中」：让嵌套的那一轮 watchLive 立刻进入冷却，切断递归
+  await putStateDoc(WATCHDOG_DOC, { lastHealAt: now, lastHealOk: null, lastHealReason: d.reason })
+
+  let ok = false
+  let error = ''
+  try {
+    const r = await cloud.callFunction({ name: 'guardian', data: {} })
+    ok = !!(r && r.result && r.result.code === 0)
+    if (!ok) error = `guardian 返回 code=${r && r.result && r.result.code}`
+  } catch (e) {
+    error = String((e && e.message) || e).slice(0, 200)
+  }
+
+  await putStateDoc(WATCHDOG_DOC, {
+    lastHealAt: now,
+    lastHealOk: ok,
+    lastHealReason: d.reason,
+    lastHealError: error,
+    lastHealCheckedAt: Date.now()
+  })
+  if (!ok) console.error('[watchLive] 补跑 guardian 失败:', error)
+  return { ...d, healed: ok, error }
 }
 
 // ────────────────────────── 状态查询 ──────────────────────────
@@ -428,6 +480,15 @@ exports.main = async () => {
 
 /** 一轮巡检主体（持锁成功后才会进来）：节奏门 → 巡检 → 自我调优 */
 async function runRound(config, roundStartedAt) {
+  // ── 看守 guardian：放在节奏门之前 ──
+  // 冷却期内也要检查，否则「巡检在正常跳轮 + guardian 已死」会互相掩盖。
+  // 失败只记日志，不影响本轮巡检。
+  try {
+    await watchGuardian(roundStartedAt)
+  } catch (e) {
+    console.warn('[watchLive] watchdog 检查失败（不影响巡检）:', e.message)
+  }
+
   // ── 节奏门：冷却期内只刷新心跳不巡检，省 QPS ──
   // 注意：即使跳轮也必须写 PACING 文档——它是「定时器是否还活着」的心跳证据
   let pacing = null

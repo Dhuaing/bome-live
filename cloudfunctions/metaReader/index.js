@@ -16,7 +16,9 @@
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
-const META_IDS = ['meta__guardian', 'meta__incidents', 'meta__pacing', 'meta__metrics', 'meta__orphans', 'meta__lock']
+const { summarizeHealth } = require('./_shared/watchdog')
+
+const META_IDS = ['meta__guardian', 'meta__incidents', 'meta__pacing', 'meta__metrics', 'meta__orphans', 'meta__lock', 'meta__watchdog']
 
 /** 轮锁读数不需要整个文档，只留排障关心的字段（token 不外泄也无意义） */
 function presentDoc(id, data) {
@@ -34,7 +36,35 @@ function getAdminOpenids() {
   return raw.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
-exports.main = async () => {
+/**
+ * 健康摘要：读四份运维档案，折算成「一句话 + 分级」。
+ * 判定逻辑在 _shared/watchdog.js（纯函数，有单测），这里只做读。
+ */
+async function readHealth() {
+  const coll = cloud.database().collection('watchState')
+  const read = async (id) => {
+    try {
+      const r = await coll.doc(id).get()
+      return (r && r.data) || null
+    } catch (e) {
+      return null // 不存在/读失败一律当作无数据，由 summarizeHealth 判 unknown
+    }
+  }
+  const [pacing, guardian, watchdog, incidents] = await Promise.all([
+    read('meta__pacing'),
+    read('meta__guardian'),
+    read('meta__watchdog'),
+    read('meta__incidents')
+  ])
+  const health = summarizeHealth({ now: Date.now(), pacing, guardian, watchdog, incidents })
+  return { code: 0, message: 'ok', data: health }
+}
+
+exports.main = async (event = {}) => {
+  // ── 健康摘要（mode:'health'）：只有分级/心跳年龄/连败数，不含用户 PII ──
+  // 因此不设管理员门控——前端「我的」页要能自助看到巡检是不是活着。
+  if (event && event.mode === 'health') return readHealth()
+
   // ── 身份门控：白名单已配置时，非管理员一律拒绝 ──
   const admins = getAdminOpenids()
   if (admins) {

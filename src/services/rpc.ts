@@ -12,7 +12,9 @@ export const RPC = {
   getUserFollows: 'getUserFollows',
   toggleFollow: 'toggleFollow',
   getStreamerStatus: 'getStreamerStatus',
-  notifyQuota: 'notifyQuota'
+  notifyQuota: 'notifyQuota',
+  metaReader: 'metaReader',
+  guardian: 'guardian'
 } as const;
 
 export type RpcName = (typeof RPC)[keyof typeof RPC];

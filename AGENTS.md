@@ -88,6 +88,7 @@ node scripts/watch-live.js --reset
 
 | # | 坑 | 症状 | 解法/要点 |
 |---|---|---|---|
+| 17 | **定时任务没有「守护者的守护者」＝静默死亡** | guardian 的定时触发器 2026-11-05 丢失，直到 11-23 才被发现——整整 18 天没有任何人/机制知道守护者已死。根因：出事后它只往 `meta__incidents` 写一条，而**没人会主动去看数据库**；CLI 重部署也不会恢复 `config.json` 里的 `triggers`/`timeout` | ① 让每分钟都在跑的 watchLive 顺手看守 guardian（`_shared/watchdog.js` 纯决策 + `meta__watchdog` 档案）：超过 26h 没自检就补跑，补跑失败冷却 6h 防刷量；**先写 lastHealAt 再调用**，否则 guardian 反向补跑 watchLive 会递归互调；② 健康度汇总 `metaReader({mode:'health'})`（level/心跳年龄/守护者年龄/连败/事故数），前端「我的」页有徽标，用户和 AI 都看得见；③ 云函数 `config.json` 只是声明，真实配置必须用 cloudApi 设（见坑 #2） |
 | 16 | **账本/轮锁的并发三坑：读失败≠不存在、条件更新做不了 CAS、写-推时序丢推送** | ① 账本 read→apply→write 三步非原子，并发 earn/spend 交错丢事件（丢 spend=虚高，用户白等推送）；读失败被当「不存在」→ 瞬时抖动用空账本覆盖真实账本；② watchLive 双轮并发（定时器 + guardian healWatch 补调）双推送双扣额度；「lockUntil<now 条件更新」抢锁时两个并发实例都能成功——条件更新没有 CAS；③ 状态先写+推送后发，实例中途被杀→推送永久丢失 | ① 账本全部改数据库端原子 op：earn=add 首档冲突退 inc、spend=`where quota>0` 条件 inc（扣不到负）、zero=无条件写 0；读失败（非 not-exists）一律抛错；earn 加 requestId 幂等（subsQuotaEvents 占位，`_id=openid__requestId`）；② 轮锁用 **旧值当条件做 CAS**（`where lockUntil=旧值` update，后写者对已改文档求值必失配），无档用 add 占位，LOCK_MS=5min 过期兜底 + finally 带 token 释放；③ 推送改「先发后按结果写」：瞬时失败不落状态→下轮按旧 prev 重判自动重试（at-least-once）；43101/配置错误落 next 防重试风暴。fake-db 单测钉语义（scripts/quota-ledger.test.js） |
 | 15 | **Git Data API 重放的两个隐形坑：删除静默丢失 + 中间提交 CI 漏跑** | Tree API `base_tree` 是**叠加**语义——重放带删文件的提交时省略条目≠删除，远端 5 个 H5 文件残留但其余全对（tree sha 对不上才暴露）；API PATCH ref 逐提交重放时中间提交永远不成为 head → 按 paths 过滤的 workflow（weapp-build-smoke）对它们一次都不跑，绿灯是假象 | 删除必须显式提交 `{path, mode:'100644', type:'blob', sha:null}` 条目；重放后**逐提交校验 tree sha 与本地一致**（不一致立即中止，api-push.js 已内置）；paths 过滤的工作流加 `workflow_dispatch`，API 推送后手动 dispatch 补跑；远端头被坏重放污染时锚点改为「远端近 30 提交 tree 集合 ∩ 本地链」找最深匹配 + force 更新 ref |
 | 14 | **删端不只删代码，还要拆 CI/文档/探针的整条链** | 删 H5 端：src 分支、config h5 段、serve-h5.js 都清了，但 ci.yml 的质量门 5/6（build:h5 + serve:h5&探针）还在跑会直接红；security-probe/http-body/security 三个只被 H5 链用的脚本成了孤儿；README/AGENTS/tsconfig/.gitignore/measure-complexity IGNORE 里全是 dist-h5 残留 | 删端按依赖反查：`grep serve-h5\|test:security\|dist-h5` 全仓（含 .github、tsconfig exclude、eslint ignorePatterns、.gitignore）；`npm uninstall <dep>` 更新 lock（不能只手改 package.json）；文档里的架构图/质量门清单要同步，历史文档（.trae/报告）留原样不追改 |
@@ -154,6 +155,9 @@ npm run typecheck && npm run lint
 ```
 
 云侧（IDE CDP 可用时，cloudconsolev1 webview）：
-- `cloudApi.tcbCountRecords/tcbQueryRecords({envId, tableName, mgoQuery})` 查集合
+- `cloudApi.tcbCountRecords/tcbQueryRecords({envId, tableName, mgoQuery})` 查集合（**注意 `tcbQueryRecords`/`tcbDeleteItem` 不接受 `region` 参数**，传了报 `UnknownParameter`；`mgoLimit` 必填）
 - `cloudApi.scfGetFunctionInfo({functionName:'watchLive', namespace:'bome-livedongyailongwang-d91c6e8'})`
 - 心跳证据：`watchState` 的 `meta__pacing.lastRoundAt`（每轮必写，含跳轮）
+- 健康度一句话：`metaReader({mode:'health'})` → `{level:'ok|warn|bad', reasons[], heartbeatAgeMin, guardianAgeMin, lastHealOk}`
+- 守护者补跑档案：`meta__watchdog`（`lastHealReason`/`lastHealOk`/`lastHealError`）
+- 前端异常上报：`guardian({action:'clientError', kind, message, stack, page})` → `cerr__<openid>`（60s/用户节流，累计 3 条自动补一条 `meta__incidents`）

@@ -41,8 +41,45 @@
   margin-top: 4rpx;
 }
 
-.menuList {
-  margin: $spacing-lg;
+// 云端体检徽标：把「巡检是不是活着」摊在用户看得见的地方
+.healthBar {
+  display: flex;
+  align-items: center;
+  margin: $spacing-lg $spacing-lg 0;
+  padding: $spacing-md $spacing-lg;
+  background: $color-bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+}
+
+.healthBar.healthPressed {
+  background: $color-bg-hover;
+}
+
+.healthDot {
+  font-size: $font-size-md;
+  margin-right: $spacing-sm;
+}
+
+.healthTextWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.healthText {
+  display: block;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+}
+
+.healthDetail {
+  display: block;
+  margin-top: 2rpx;
+  font-size: $font-size-xs;
+  color: $color-text-tertiary;
+}
+
+.menuList {  margin: $spacing-lg;
   background: $color-bg-card;
   border-radius: $radius-lg;
   overflow: hidden;

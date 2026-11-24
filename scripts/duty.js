@@ -126,6 +126,11 @@ function fmtCloudSection(cloud) {
   if (g.at) {
     lines.push(`- guardian 最近自检：${new Date(g.at).toLocaleString('zh-CN')}，事故 ${g.incidentCount ?? 0} 条`);
   }
+  const wd = d.watchdog || {};
+  if (wd.lastHealAt) {
+    const healState = wd.lastHealOk === true ? '✅ 成功' : (wd.lastHealOk === false ? `❌ 失败（${wd.lastHealError || '未知原因'}）` : '⏳ 进行中')
+    lines.push(`- 守护者补跑：${healState} @ ${new Date(Number(wd.lastHealAt)).toLocaleString('zh-CN')}（触发原因 ${wd.lastHealReason || '?'}）`)
+  }
   const incAll = Array.isArray(d.incidents && d.incidents.list) ? d.incidents.list : [];
   // level==='resolved' 是已办记录（人工认领/修复后标注），不算待处理，别每天重播
   const inc = incAll.filter((x) => x && x.level !== 'resolved');
