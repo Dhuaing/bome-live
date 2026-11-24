@@ -100,13 +100,13 @@ async function readCloudViaCdp() {
     if (!targets) return { available: false, reason: 'IDE CDP(9223) 未响应（IDE 未运行）' };
     const hasCloud = targets.some((t) => /cloudconsolev1/.test(t.url || ''));
     if (!hasCloud) return { available: false, reason: '云控制台 webview 未开' };
-    const expr = `(async()=>{ const db=window.cloudApi; const read=async c=>{ try{ const r=await db.tcbQueryRecords({envId:'bome-livedongyailongwang-d91c6e8',tableName:'watchState',mgoQuery:JSON.stringify({_id:c}),mgoLimit:5}); return (r&&r.data&&r.data[0])?JSON.parse(r.data[0]):null; }catch(e){ return null; } }; return {guardian:await read('meta__guardian'), incidents:await read('meta__incidents'), pacing:await read('meta__pacing'), metrics:await read('meta__metrics'), orphans:await read('meta__orphans')}; })()`;
+    const expr = `(async()=>{ const db=window.cloudApi; const read=async c=>{ try{ const r=await db.tcbQueryRecords({envId:'bome-livedongyailongwang-d91c6e8',tableName:'watchState',mgoQuery:JSON.stringify({_id:c}),mgoLimit:5}); return (r&&r.data&&r.data[0])?JSON.parse(r.data[0]):null; }catch(e){ return null; } }; return {guardian:await read('meta__guardian'), incidents:await read('meta__incidents'), pacing:await read('meta__pacing'), metrics:await read('meta__metrics'), orphans:await read('meta__orphans'), watchdog:await read('meta__watchdog')}; })()`;
     const b64 = Buffer.from(expr).toString('base64');
     const out = sh(`node "${evalHelper}" cloudconsolev1 ${b64}`, { timeout: 60000 });
     const parsed = JSON.parse(String(out.out).trim().slice(String(out.out).indexOf('{')));
     // cdp-eval.js 的返回包了一层 {type, value}——读数在 value 里
     const inner = parsed && typeof parsed.value === 'object' && parsed.value !== null ? parsed.value : parsed;
-    // 区分「读数成功」与「读失败」：五份文档至少一份拿到才算真读上——
+    // 区分「读数成功」与「读失败」：六份文档至少一份拿到才算真读上——
     // 否则全拿到 null 也当成功，会把「读失败」误报成「无事故」（值班报告失真）
     const gotAny = inner && Object.values(inner).some((v) => v && typeof v === 'object');
     if (!gotAny) return { available: false, reason: `CDP 调用通但文档全空（${String(out.out).trim().slice(0, 80)}）` };

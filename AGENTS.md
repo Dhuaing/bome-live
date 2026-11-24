@@ -161,3 +161,10 @@ npm run typecheck && npm run lint
 - 健康度一句话：`metaReader({mode:'health'})` → `{level:'ok|warn|bad', reasons[], heartbeatAgeMin, guardianAgeMin, lastHealOk}`
 - 守护者补跑档案：`meta__watchdog`（`lastHealReason`/`lastHealOk`/`lastHealError`）
 - 前端异常上报：`guardian({action:'clientError', kind, message, stack, page})` → `cerr__<openid>`（60s/用户节流，累计 3 条自动补一条 `meta__incidents`）
+- 环境资源总览（判「日志/备份是否真开」的唯一可信源）：
+  `cloudApi.tcbGetEnvironments({})` → `envList[0]` 里的
+  `logServices[0].period`（云函数日志保留天数，**有值即已开启**，个人版默认 7 天免费）
+  `databases[0].instanceId`（形如 `tnt-9lytqnvps`，**不是 envId**）
+- 备份是否真在跑：`cloudApi.flexdbDescribeRestoreTime({instanceId})` → `restoreTimeRanges`（可回档范围）+ `restoreTimes`（每日备份点）。
+  **注意 `flexdbDescribeRestoreTime` 不接受 `region`**，`instanceId` 传 envId 会报 `InvalidParameter`
+- 控制台「概览」的待办提醒**不可全信**：曾长期显示「启用数据备份与回档」，而 API 与 数据库回档 页都证明备份每日在跑（11-16 起）。核对以 `tcbGetEnvironments` + `flexdbDescribeRestoreTime` 为准
