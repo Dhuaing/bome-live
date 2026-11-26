@@ -17,6 +17,7 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const { summarizeHealth } = require('./_shared/watchdog')
+const { readDocOrNull } = require('./_shared/state-doc')
 
 const META_IDS = ['meta__guardian', 'meta__incidents', 'meta__pacing', 'meta__metrics', 'meta__orphans', 'meta__lock', 'meta__watchdog']
 
@@ -39,23 +40,27 @@ function getAdminOpenids() {
 /**
  * 健康摘要：读四份运维档案，折算成「一句话 + 分级」。
  * 判定逻辑在 _shared/watchdog.js（纯函数，有单测），这里只做读。
+ *
+ * 读失败不再当成「文档不存在」：把数据库故障折算成「巡检从未运行」
+ * 会伪造一条 🔴 停摆假据，比返回「未知」更糟。真读失败直接 code=-1，
+ * 前端 fetchHealth 返回 null → 「巡检状态未知」。
  */
 async function readHealth() {
-  const coll = cloud.database().collection('watchState')
-  const read = async (id) => {
-    try {
-      const r = await coll.doc(id).get()
-      return (r && r.data) || null
-    } catch (e) {
-      return null // 不存在/读失败一律当作无数据，由 summarizeHealth 判 unknown
-    }
+  const db = cloud.database()
+  const read = (id) => readDocOrNull(db, 'watchState', id)
+  let docs
+  try {
+    docs = await Promise.all([
+      read('meta__pacing'),
+      read('meta__guardian'),
+      read('meta__watchdog'),
+      read('meta__incidents')
+    ])
+  } catch (e) {
+    console.error('[metaReader] 健康档案读取失败:', e && (e.message || e))
+    return { code: -1, message: 'read-failed', data: null }
   }
-  const [pacing, guardian, watchdog, incidents] = await Promise.all([
-    read('meta__pacing'),
-    read('meta__guardian'),
-    read('meta__watchdog'),
-    read('meta__incidents')
-  ])
+  const [pacing, guardian, watchdog, incidents] = docs
   const health = summarizeHealth({ now: Date.now(), pacing, guardian, watchdog, incidents })
   return { code: 0, message: 'ok', data: health }
 }
@@ -80,18 +85,28 @@ exports.main = async (event = {}) => {
   }
 
   const db = cloud.database()
-  const coll = db.collection('watchState')
   const out = {}
+  const errors = []
   for (const id of META_IDS) {
     try {
-      const r = await coll.doc(id).get()
-      out[id.replace('meta__', '')] = presentDoc(id, r.data)
+      out[id.replace('meta__', '')] = presentDoc(id, await readDocOrNull(db, 'watchState', id))
     } catch (e) {
-      // 不存在/读失败都落 null——由调用方区分「读失败」与「无数据」
+      // 不存在落 null；真·读失败单独记下来，不伪装成「无数据」
       out[id.replace('meta__', '')] = null
+      errors.push(id.replace('meta__', ''))
     }
   }
-  // 至少一份真读上（非 null）才算成功，否则如实报 not-found
+  // 至少一份真读上（非 null）才算成功，否则如实报 not-found / read-failed
   const gotAny = Object.values(out).some((v) => v && typeof v === 'object')
-  return { code: 0, message: gotAny ? 'ok' : 'meta-not-found', data: out }
+  if (!gotAny && errors.length) {
+    console.error('[metaReader] 运维档案全部读取失败:', errors.join(', '))
+    return { code: -1, message: 'read-failed', data: out, errors }
+  }
+  return {
+    code: 0,
+    message: gotAny ? 'ok' : 'meta-not-found',
+    data: out,
+    // 部分读失败时不影响已读到的档案，但把失败清单显式带出去，duty 可标注降级
+    ...(errors.length ? { errors } : {})
+  }
 }

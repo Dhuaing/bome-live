@@ -80,7 +80,7 @@ node scripts/watch-live.js --reset        # 清空巡检状态
 `project.config.json` 里的 `miniprogramRoot` 已指向 `dist-weapp/`。
 
 **首次使用需要：**
-1. 把 `project.config.json` 的 `appid` 换成你的真实 AppID（当前是 `touristappid`，游客模式无法使用云开发）
+1. 确认真实 AppID（当前仓库已配置为 `wx47127cae29fda7e6`；换环境时替换成你自己的，游客 `touristappid` 无法使用云开发）
 2. 在云开发控制台创建集合 `follows`，权限设为「仅创建者可读写」
 3. 右键 `cloudfunctions/` 下每个函数 → 上传并部署
 
@@ -88,7 +88,7 @@ node scripts/watch-live.js --reset        # 清空巡检状态
 
 | 端 | 存储 | 隔离方式 |
 |---|---|---|
-| 小程序 | 云数据库 `follows` 集合 | 微信自动注入 `_openid`，按用户隔离 |
+| 小程序 | 云数据库 `follows` 集合 | 云函数以管理员身份写入，显式存 `_openid`（取自 `cloud.getWXContext().OPENID`），按用户隔离 |
 
 ## 环境配置
 
@@ -201,7 +201,7 @@ src/services/cloud.ts          传输层（Taro.cloud）
 
 ```bash
 npx tsc --noEmit       # 应为 0 错误
-npm test               # 22 个单测（规则一致性 + 接口契约）
+npm test               # 单测（规则一致性 + 接口契约 + 云函数纯逻辑）
 npm run check:rules    # 生成物与规则源是否同步
 npx eslint src         # 建议接入 CI
 ```

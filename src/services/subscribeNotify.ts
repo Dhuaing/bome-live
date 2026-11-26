@@ -25,7 +25,7 @@ const requestSubscribeMessage = Taro.requestSubscribeMessage as unknown as (
  * - 所以 silent 模式全程不出 toast，结果只用于埋点/调试
  *
  * 三种结果都给用户明确反馈，不假装成功：
- * - accepted：用户同意，攒了一条额度
+ * - accepted：用户同意（额度记账失败时提示「已授权，额度同步暂未完成」）
  * - rejected：用户拒绝总开关或该次弹窗（可再次点击开启）
  * - unavailable：模板 ID 未配置，链路本身不可用
  */
@@ -50,9 +50,15 @@ export async function requestLiveNotifyPermission(
     const accepted =
       res[SUBS_TEMPLATE_ID] === 'accept' && (res.errMsg || 'ok').includes('ok');
     if (accepted) {
-      // 平台侧额度 +1 已发生，把它记进自建账本（显示层宁虚低不虚高）
-      await earnQuota(requestId);
-      show('已开启开播提醒', 'success');
+      // 平台侧额度 +1 已发生，把它记进自建账本（显示层宁虚低不虚高）。
+      // earnQuota 失败返回 null（不抛错）：微信没有余额查询 API，无法补偿，
+      // 只能如实告诉用户「授权成功但账本没跟上」，不能谎称额度已到账。
+      const quota = await earnQuota(requestId);
+      if (quota) {
+        show('已开启开播提醒', 'success');
+      } else {
+        show('已开启提醒，额度同步暂未完成');
+      }
       return 'accepted';
     }
     show('未开启，可再次点击');

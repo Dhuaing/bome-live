@@ -25,6 +25,7 @@ const { buildSubsData, buildAlertData } = require('./_shared/notify-data')
 const { decideCooldownMinutes } = require('./_shared/pacing')
 const { commitEvent } = require('./_shared/quota-ledger')
 const { decideGuardianHeal } = require('./_shared/watchdog')
+const { readDocOrNull } = require('./_shared/state-doc')
 
 const FOLLOW_COLLECTION = 'follows'
 const STATE_COLLECTION = 'watchState'
@@ -52,6 +53,12 @@ const { ensureCollection } = require('./_shared/ensure-collection')
 const FAIL_ALERT_THRESHOLD = 3
 /** 告警冷却：两次故障告警之间至少间隔的时间 */
 const ALERT_COOLDOWN_MS = 60 * 60 * 1000
+/**
+ * 无主关注档案里最多存几个 uniqueId 样本。
+ * 全量写进单文档会随脏数据增长撑大文档（单文档有体积上限），
+ * 而这份档案只用于「让人看见有人要修」，留样本 + 总数足够。
+ */
+const ORPHAN_SAMPLE_MAX = 20
 
 /** 运行配置：模板 ID / 跳转路径 / 模板字段映射（获得模板后填 watch-config.json） */
 function loadWatchConfig() {
@@ -94,15 +101,13 @@ async function listAllFollows() {
   return all
 }
 
-/** 读一条 watchState 文档（不存在返回 null） */
+/**
+ * 读一条 watchState 文档。
+ * 不存在 → null；**其他读失败一律抛错**（坑 #18：把权限/网络错误当成空状态，
+ * 会让节奏档失效绕冷却、让健康摘要误报「从未运行」）。
+ */
 async function getStateDoc(docId) {
-  try {
-    const res = await db.collection(STATE_COLLECTION).doc(docId).get()
-    return res.data || null
-  } catch (e) {
-    // 云开发对不存在的 doc 会直接抛错，这里当作「没有状态」
-    return null
-  }
+  return readDocOrNull(db, STATE_COLLECTION, docId)
 }
 
 /** 幂等写一条 watchState 文档 */
@@ -110,14 +115,12 @@ async function putStateDoc(docId, patch) {
   const coll = db.collection(STATE_COLLECTION)
   // 注意：云开发 doc().update() 对不存在的文档是「静默成功」的空操作（不报错也不创建），
   // 不能靠「update 失败再 add」兜底新建，必须先读后写。
-  try {
-    const got = await coll.doc(docId).get()
-    if (got && got.data && Object.keys(got.data).length) {
-      await coll.doc(docId).update({ data: patch })
-      return
-    }
-  } catch (e) {
-    // 不存在（get 报错）→ 走 add 新建
+  // 读失败不再当「不存在」：否则一次抖动就会走 add → 撞 _id 冲突 → 再 update，
+  // 把一次真实的数据库故障伪装成成功写入。
+  const existing = await readDocOrNull(db, STATE_COLLECTION, docId)
+  if (existing) {
+    await coll.doc(docId).update({ data: patch })
+    return
   }
   try {
     await coll.add({ data: Object.assign({ _id: docId }, patch) })
@@ -156,13 +159,11 @@ async function acquireRoundLock(now) {
   const lockUntil = now + LOCK_MS
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    let prev = null
-    try {
-      const got = await coll.doc(LOCK_DOC).get()
-      prev = got && got.data && Object.keys(got.data).length ? got.data : null
-    } catch (e) {
-      prev = null // 不存在
-    }
+    // 读失败不再当「没有锁」：真·读不通时直接抛错（外层转 error-backoff），
+    // 而不是走 add 撞 _id 冲突 → 重试 → 最后报「他人持锁」，
+    // 把一次数据库故障伪装成「有别的轮在跑」（坑 #18）。
+    const got = await readDocOrNull(db, STATE_COLLECTION, LOCK_DOC)
+    const prev = got && Object.keys(got).length ? got : null
 
     if (prev && Number(prev.lockUntil) > now) {
       return { ok: false } // 他人持锁中
@@ -490,13 +491,10 @@ async function runRound(config, roundStartedAt) {
   }
 
   // ── 节奏门：冷却期内只刷新心跳不巡检，省 QPS ──
-  // 注意：即使跳轮也必须写 PACING 文档——它是「定时器是否还活着」的心跳证据
-  let pacing = null
-  try {
-    pacing = await getStateDoc(PACING_DOC)
-  } catch (e) {
-    pacing = null
-  }
+  // 注意：即使跳轮也必须写 PACING 文档——它是「定时器是否还活着」的心跳证据。
+  // 读失败不降级成「没有冷却」（坑 #18）：那样每轮都会全量巡检、白烧调用量，
+  // 异常应该抛给外层写 error-backoff，而不是被当成「第一次运行」。
+  const pacing = await getStateDoc(PACING_DOC)
   if (pacing && Number(pacing.waitUntil) > roundStartedAt) {
     await putStateDoc(PACING_DOC, {
       lastRoundAt: roundStartedAt,
@@ -541,9 +539,11 @@ async function runRound(config, roundStartedAt) {
   }
   if (orphans.length > 0) {
     console.error(`[watchLive] 发现 ${orphans.length} 条无主关注（_openid 缺失，跳过巡检订阅）: ${orphans.join(', ')}`)
+    // 只存样本：全量 uniqueId 写单文档会随脏数据增长撞体积上限（坑 #18 延伸）
     await putStateDoc('meta__orphans', {
       count: orphans.length,
-      uniqueIds: orphans,
+      uniqueIds: orphans.slice(0, ORPHAN_SAMPLE_MAX),
+      sampled: orphans.length > ORPHAN_SAMPLE_MAX,
       lastSeenAt: Date.now()
     })
   }

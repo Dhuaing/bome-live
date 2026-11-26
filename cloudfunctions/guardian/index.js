@@ -39,13 +39,15 @@ const CLIENT_ERROR_REPORT_AT = 3
 /** 前端上报文档前缀（cerr__<openid>） */
 const CLIENT_ERROR_PREFIX = 'cerr__'
 
+const { readDocOrNull } = require('./_shared/state-doc')
+
+/**
+ * 读一条 watchState 文档（不存在 → null，其他读失败 → 抛错）。
+ * 以前一律吞成 null：数据库抖动时会把「心跳档读不到」判成「巡检从未运行」，
+ * 触发一次假自愈；事故档读不到还会被当成空档覆盖（坑 #18）。
+ */
 async function readStateDoc(docId) {
-  try {
-    const res = await db.collection(STATE_COLLECTION).doc(docId).get()
-    return (res && res.data && typeof res.data === 'object') ? res.data : null
-  } catch (e) {
-    return null
-  }
+  return readDocOrNull(db, STATE_COLLECTION, docId)
 }
 
 /** 事故追加（prepend) + 封口长度 */
@@ -82,7 +84,15 @@ async function recordClientError(event) {
 
   const docId = `${CLIENT_ERROR_PREFIX}${OPENID}`
   const now = Date.now()
-  const prev = await readStateDoc(docId)
+  // 读失败不按「没有记录」处理：那样会绕过节流刷文档，且可能用空值覆盖历史。
+  // 上报是尽力而为，读不通就如实拒绝，让前端静默放弃。
+  let prev = null
+  try {
+    prev = await readStateDoc(docId)
+  } catch (e) {
+    console.warn('[guardian] 前端错误档案读取失败:', e.message)
+    return { code: -1, message: 'read-failed', data: null }
+  }
   const lastAt = Number(prev && prev.lastAt) || 0
   if (lastAt && now - lastAt < CLIENT_ERROR_THROTTLE_MS) {
     return { code: 0, message: 'throttled', data: { count: Number(prev && prev.count) || 0 } }
@@ -114,17 +124,23 @@ async function recordClientError(event) {
 
   console.warn(`[guardian] 前端异常上报 user=${OPENID.slice(0, 6)}… count=${count} kind=${entry.kind} msg=${entry.message}`)
   if (count === CLIENT_ERROR_REPORT_AT) {
-    await recordIncident({
-      at: now,
-      type: 'client-error',
-      level: 'info',
-      detail: `用户 ${OPENID.slice(0, 6)}… 累计 ${count} 次前端异常：${entry.message || '(无消息)'}（页面 ${entry.page || '?'}）`
-    })
+    try {
+      await recordIncident({
+        at: now,
+        type: 'client-error',
+        level: 'info',
+        detail: `用户 ${OPENID.slice(0, 6)}… 累计 ${count} 次前端异常：${entry.message || '(无消息)'}（页面 ${entry.page || '?'}）`
+      })
+    } catch (e) {
+      // 上报已落库，事故档读失败不能反过来让前端收到失败
+      console.warn('[guardian] 前端异常汇总写事故档失败:', e.message)
+    }
   }
   return { code: 0, message: 'ok', data: { count } }
 }
 
-/** 自愈动作：直接调一轮 watchLive 补位（冷启动失败/触发器失联都会被拉回） */async function healWatch() {
+/** 自愈动作：直接调一轮 watchLive 补位（冷启动失败/触发器失联都会被拉回） */
+async function healWatch() {
   try {
     const r = await cloud.callFunction({ name: 'watchLive', data: {} })
     return { action: 'watchLive-recalled', result: r.result || null, ok: true }
@@ -171,9 +187,11 @@ exports.main = async (event = {}) => {
   const orphanCount = Number(orphans && orphans.count) || 0
   summary.checked.push({ key: 'orphans', value: orphanCount })
   if (orphanCount > 0) {
+    const ids = (orphans && Array.isArray(orphans.uniqueIds)) ? orphans.uniqueIds : []
+    const more = orphans && orphans.sampled ? '（仅列样本）' : ''
     summary.incidents.push({
       at, type: 'orphans', level: 'info',
-      detail: `存在 ${orphanCount} 条无主关注（已自动跳过订阅）：${(orphans && Array.isArray(orphans.uniqueIds) ? orphans.uniqueIds : []).join(', ')}`
+      detail: `存在 ${orphanCount} 条无主关注（已自动跳过订阅）：${ids.join(', ')}${more}`
     })
   }
 
@@ -188,7 +206,12 @@ exports.main = async (event = {}) => {
   // 落地里：incidents 增补 + 自检快照（总是写 = 定时器存活证据之二）
   if (summary.incidents.length > 0) {
     for (const inc of summary.incidents) {
-      await recordIncident(inc)
+      try {
+        await recordIncident(inc)
+      } catch (e) {
+        // 事故档读失败时如实记日志，但不让整次自检失败（快照还要写）
+        console.error('[guardian] 写入事故档失败:', e.message, inc.type)
+      }
     }
   }
   try {

@@ -79,9 +79,13 @@ async function readCloudViaProbe() {
     const out = sh(`node "${evalHelper}" simulator-app-session ${b64}`, { timeout: 60000 });
     const parsed = JSON.parse(String(out.out).trim().slice(String(out.out).indexOf('{')));
     const j = parsed && typeof parsed.value === 'object' ? parsed.value : parsed;
+    // 云函数业务失败（code!=0）如实降级，不要把全 null 的档案当读数
+    if (j && j.code !== undefined && j.code !== 0) {
+      return { available: false, reason: `metaReader 返回失败（${j.message || j.code}）` };
+    }
     const d = j && j.data;
     if (!d || typeof d !== 'object') return { available: false, reason: `metaReader 应答异常（${j && j.message || 'no-data'}）` };
-    return { available: true, data: d };
+    return { available: true, data: d, partialErrors: (j && j.errors) || null };
   } catch (e) {
     return { available: false, reason: String(e.message || e).slice(0, 120) };
   }
