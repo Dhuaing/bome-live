@@ -104,7 +104,7 @@ node scripts/watch-live.js --reset
 | 5 | **构建环境变量必须显式传** | 产物里模板 ID/环境 ID 为空或旧默认值 → 订阅按钮消失/连错环境 | build 前设 `TCB_ENV_ID` + `SUBS_TEMPLATE_ID`；`scripts/doctor.js` 可验 |
 | 4 | **React 子组件 effect 先于父组件执行** | `wx.cloud.init` 写在 App 的 useEffect → store 首拉报「please call wx.cloud.init first」且被吞，关注列表空白 | init 提到模块加载期；`services/cloud.ts` 有 ensureCloudInit 兜底 |
 | 3 | **`scfGetFunctionLogs` 对微信环境永远空** | 用它验证定时器是否触发→假阴性 | 查 `watchState` 心跳文档/指标文档；`tcbGetFunctionLogs`/`tcbSearchClsLog` 需开日志服务 |
-| 2 | **IDE CLI/HTTP 通道做不到云 API 配置**（触发器、超时） | CLI 路由表无这些端点；`cli cloud functions deploy` 也不会应用函数目录 `config.json` 的 `timeout` → 重部署后仍可能是默认 3s（guardian/getStreamerStatus/notifyQuota 全部中招，guardian 3s 根本调不动 watchLive） | IDE 带 `--remote-debugging-port=9223` 启动 → CDP 驱动 cloudconsolev1 webview 里的 `window.cloudApi`（小驼峰参数：functionName/namespace/timeout/region）；完整配方见「CDP 驱动 IDE」一节 |
+| 2 | **IDE CLI/HTTP 通道做不到云 API 配置**（触发器、超时） | CLI 路由表无这些端点；`cli cloud functions deploy` 也不会应用函数目录 `config.json` 的 `timeout`（2026-11-26 实测：重部署后服务端原 60s 会保留，但这是「保留旧配置」不是「应用 config.json」，新函数/被重置时仍会是默认 3s） | IDE 带 `--remote-debugging-port=9223` 启动 → CDP 驱动 cloudconsolev1 webview 里的 `window.cloudApi`（小驼峰参数：functionName/namespace/timeout/region）；**每次 deploy 后用 `cli cloud functions info` 复核 timeout**；完整配方见「CDP 驱动 IDE」一节 |
 | 1 | **微信数据库权限模型** | 客户端查询只见自己的文档（`_openid` 过滤）；服务端 read 全量 | 巡检函数刻意不按 openid 过滤；写库方（toggleFollow）责任带 `_openid` |
 
 ## CDP 驱动 IDE（调试端口手法）
