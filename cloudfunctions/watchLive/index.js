@@ -376,14 +376,34 @@ async function handleStreamFailure(uniqueId, subscribers, error, config) {
 }
 
 /** 一个主播的查询成功处理：清失败计数，逐用户判定 + 推送 */
-async function handleStreamSuccess(uniqueId, subscribers, info, config) {
+async function handleStreamSuccess(uniqueId, subscribers, info, config, roundStartedAt) {
   await removeStateDoc(`fail__${uniqueId}`)
 
   let pushed = 0
   for (const openid of subscribers) {
     const docId = `${openid}__${uniqueId}`
     const prev = await getStateDoc(docId)
-    const { next, notify } = evaluate(prev, info)
+    const { next, notify, decision } = evaluate(prev, info)
+
+    // 记录状态转场与会触发提醒的判定，便于从云函数日志复盘误报。
+    // 不写 openid、完整直播间标题或订阅额度；uniqueId 是公开主播标识。
+    if (!prev || notify || prev.status !== decision.currentStatus) {
+      console.log('[watchLive] 判定审计:', JSON.stringify({
+        uniqueId,
+        // 本轮巡检起点 + 本条判定时刻：让单行日志自带「哪一轮、什么时候」
+        roundAt: roundStartedAt,
+        checkedAt: decision.checkedAt,
+        reason: decision.reason,
+        previousStatus: decision.previousStatus,
+        currentStatus: decision.currentStatus,
+        previousStartTime: decision.previousStartTime,
+        startTime: decision.startTime,
+        driftMs: decision.driftMs,
+        titlesComparable: decision.titlesComparable,
+        sameTitle: decision.sameTitle,
+        notify
+      }))
+    }
 
     const page = (config.page || '').includes('{uniqueId}')
       ? (config.page || '').replace('{uniqueId}', uniqueId)
@@ -414,18 +434,22 @@ async function handleStreamSuccess(uniqueId, subscribers, info, config) {
     )
     if (r.ok) {
       pushed += 1
+      console.log('[watchLive] 提醒发送结果:', JSON.stringify({ uniqueId, roundAt: roundStartedAt, result: 'sent', errCode: 0 }))
       await recordQuotaEvent(openid, 'spend')
       await putStateDoc(docId, { openid, uniqueId, ...next })
     } else if (r.errCode === 43101) {
       // 平台确认没有额度：账本归零校准（防账本虚高）
+      console.warn('[watchLive] 提醒发送结果:', JSON.stringify({ uniqueId, roundAt: roundStartedAt, result: 'no-quota', errCode: r.errCode, errMsg: String(r.errMsg || '').slice(0, 120) }))
       await recordQuotaEvent(openid, 'zero')
       await putStateDoc(docId, { openid, uniqueId, ...next })
     } else if (r.errCode === 'CONFIG' || r.errCode === 200014 || r.errCode === 47003) {
+      console.warn('[watchLive] 提醒发送结果:', JSON.stringify({ uniqueId, roundAt: roundStartedAt, result: 'failed-final', errCode: r.errCode, errMsg: String(r.errMsg || '').slice(0, 120) }))
       console.error(`[watchLive] 推送配置问题(${r.errCode})，落状态并跳过本主播后续用户以防刷量`)
       await putStateDoc(docId, { openid, uniqueId, ...next })
       break
     } else {
-      console.warn(`[watchLive] 推送失败 openid=${openid.slice(0, 6)}… err=${r.errCode} ${r.errMsg}（状态未落，下轮重试）`)
+      console.warn('[watchLive] 提醒发送结果:', JSON.stringify({ uniqueId, roundAt: roundStartedAt, result: 'failed-retryable', errCode: r.errCode, errMsg: String(r.errMsg || '').slice(0, 120) }))
+      console.warn(`[watchLive] 推送失败 err=${r.errCode}（状态未落，下轮重试）`)
     }
   }
   return pushed
@@ -560,7 +584,7 @@ async function runRound(config, roundStartedAt) {
       continue
     }
     if (q.info && q.info.status === 'living') livingStreams += 1
-    pushed += await handleStreamSuccess(uniqueId, openids, q.info, config)
+    pushed += await handleStreamSuccess(uniqueId, openids, q.info, config, roundStartedAt)
   }
 
   console.log(

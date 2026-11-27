@@ -134,3 +134,55 @@ test('evaluate：now 默认取 Date.now()，第三参可注入（离线轮推送
   const r = evaluate(prev, { status: 'living', liveStartTime: NOW, roomTitle: TITLE }, NOW);
   assert.strictEqual(r.notify, true);
 });
+
+// ── 判定审计：日志里的 reason 必须能解释「为什么推/不推」 ──
+
+test('决策审计：首次观察 → first-observation，不推', () => {
+  const r = evaluate(undefined, { status: 'living', liveStartTime: NOW, roomTitle: TITLE }, NOW);
+  assert.strictEqual(r.decision.reason, 'first-observation');
+  assert.strictEqual(r.decision.checkedAt, NOW);
+  assert.strictEqual(r.notify, false);
+});
+
+test('决策审计：offline→living → offline-to-living，推送', () => {
+  const prev = { status: 'offline', sessionKey: 0, roomTitle: TITLE, lastPushAt: 0 };
+  const r = evaluate(prev, { status: 'living', liveStartTime: NOW, roomTitle: TITLE }, NOW);
+  assert.strictEqual(r.decision.reason, 'offline-to-living');
+  assert.strictEqual(r.notify, true);
+});
+
+test('决策审计：合并窗内同标题重开 → recent-same-title-merge，不推', () => {
+  const prev = { status: 'offline', sessionKey: 0, roomTitle: TITLE, lastPushAt: NOW - 40 * MIN };
+  const r = evaluate(prev, { status: 'living', liveStartTime: NOW, roomTitle: TITLE }, NOW);
+  assert.strictEqual(r.decision.reason, 'recent-same-title-merge');
+  assert.strictEqual(r.notify, false);
+});
+
+test('决策审计：直播中 43min 漂移同标题 → living-same-session-merge，不推', () => {
+  const prev = { status: 'living', sessionKey: NOW - 43 * MIN, roomTitle: TITLE, lastPushAt: NOW - 43 * MIN };
+  const r = evaluate(prev, { status: 'living', liveStartTime: NOW, roomTitle: TITLE }, NOW);
+  assert.strictEqual(r.decision.reason, 'living-same-session-merge');
+  assert.strictEqual(r.decision.driftMs, 43 * MIN);
+  assert.strictEqual(r.notify, false);
+});
+
+test('决策审计：直播中超过合并窗 → living-session-change，推送', () => {
+  const prev = { status: 'living', sessionKey: NOW - 100 * MIN, roomTitle: TITLE, lastPushAt: NOW - 100 * MIN };
+  const r = evaluate(prev, { status: 'living', liveStartTime: NOW, roomTitle: TITLE }, NOW);
+  assert.strictEqual(r.decision.reason, 'living-session-change');
+  assert.strictEqual(r.notify, true);
+});
+
+test('决策审计：缺开播时间 → living-time-missing，不推', () => {
+  const prev = { status: 'living', sessionKey: 0, roomTitle: TITLE, lastPushAt: NOW - 10 * MIN };
+  const r = evaluate(prev, { status: 'living', roomTitle: TITLE }, NOW);
+  assert.strictEqual(r.decision.reason, 'living-time-missing');
+  assert.strictEqual(r.notify, false);
+});
+
+test('决策审计：living→offline → no-new-live-transition，不推', () => {
+  const prev = { status: 'living', sessionKey: NOW - 10 * MIN, roomTitle: TITLE, lastPushAt: NOW - 10 * MIN };
+  const r = evaluate(prev, { status: 'offline' }, NOW);
+  assert.strictEqual(r.decision.reason, 'no-new-live-transition');
+  assert.strictEqual(r.notify, false);
+});

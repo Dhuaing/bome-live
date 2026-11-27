@@ -79,6 +79,33 @@ function shouldNotify(prev, current, startTime, roomTitle, now) {
   return true;
 }
 
+/** 给运维日志的简短判定原因；避免只看到推送结果却无法还原触发条件。 */
+function explainDecision(prev, current, startTime, roomTitle, now) {
+  const previousStatus = prev ? prev.status : null;
+  const previousStartTime = prev && prev.sessionKey ? prev.sessionKey : 0;
+  const driftMs = previousStartTime && startTime
+    ? Math.abs(startTime - previousStartTime)
+    : null;
+  const titlesComparable = !!(prev && prev.roomTitle && roomTitle);
+  const sameTitle = titlesComparable && prev.roomTitle === roomTitle;
+  let reason;
+
+  if (!prev) reason = 'first-observation';
+  else if (previousStatus !== 'living' && current === 'living') {
+    const recentlyPushed = prev.lastPushAt > 0 && now - prev.lastPushAt <= SESSION_MERGE_MS;
+    reason = recentlyPushed && sameTitle ? 'recent-same-title-merge' : 'offline-to-living';
+  } else if (previousStatus === 'living' && current === 'living') {
+    if (!previousStartTime || !startTime) reason = 'living-time-missing';
+    else if (driftMs <= SESSION_CHANGE_MIN_MS) reason = 'living-time-noise';
+    else if (driftMs <= SESSION_MERGE_MS && sameTitle) reason = 'living-same-session-merge';
+    else reason = 'living-session-change';
+  } else {
+    reason = 'no-new-live-transition';
+  }
+
+  return { reason, checkedAt: now, previousStatus, currentStatus: current, previousStartTime, startTime, driftMs, titlesComparable, sameTitle };
+}
+
 /**
  * 由「上次状态 + 本次查询结果」算出新的状态条目与是否推送。
  *
@@ -92,6 +119,7 @@ function evaluate(prev, info, now = Date.now()) {
   const startTime = normalizeStartTime(info);
   const roomTitle = normalizeRoomTitle(info);
   const notify = shouldNotify(prev, current, startTime, roomTitle, now);
+  const decision = explainDecision(prev, current, startTime, roomTitle, now);
 
   const living = current === 'living';
   const next = {
@@ -106,7 +134,7 @@ function evaluate(prev, info, now = Date.now()) {
     lastCheckedAt: now
   };
 
-  return { next, notify, current };
+  return { next, notify, current, decision };
 }
 
 /** 组装推送文案（本机 nanobot 备用链路用的文本格式） */
@@ -119,4 +147,4 @@ function formatMessage(follow, info, fallbackRoomUrl) {
   return lines.join('\n');
 }
 
-module.exports = { SESSION_CHANGE_MIN_MS, SESSION_MERGE_MS, evaluate, formatMessage, shouldNotify };
+module.exports = { SESSION_CHANGE_MIN_MS, SESSION_MERGE_MS, evaluate, formatMessage, shouldNotify, explainDecision };
