@@ -525,7 +525,7 @@ async function runRound(config, roundStartedAt) {
       waitUntil: pacing.waitUntil,
       mode: 'cooldown'
     })
-    console.log(`[watchLive] 冷却期至 ${new Date(Number(pacing.waitUntil)).toISOString()}，本轮跳过`)
+    console.log(`[watchLive] 冷却期至 ${new Date(Number(pacing.waitUntil)).toISOString()}，本轮跳过（roundAt=${roundStartedAt}）`)
     return { code: 0, message: 'pacing-skip', pushed: 0 }
   }
 
@@ -588,7 +588,7 @@ async function runRound(config, roundStartedAt) {
   }
 
   console.log(
-    `[watchLive] 本轮完成：主播 ${byStreamer.size} 个 / 用户记录 ${follows.length} 条，推送 ${pushed} 条`
+    `[watchLive] 本轮完成：主播 ${byStreamer.size} 个 / 用户记录 ${follows.length} 条，推送 ${pushed} 条（roundAt=${roundStartedAt}）`
   )
 
   // ── 自我调优：按本轮结果写下一轮冷却 + 落本轮指标 ──
